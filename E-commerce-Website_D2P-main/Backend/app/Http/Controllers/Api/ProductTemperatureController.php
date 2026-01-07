@@ -5,23 +5,28 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Product;
 use App\Services\TemperatureClassifier;
-use App\Services\AITemperatureClassifier;
+use App\Services\LocalAITemperatureClassifier;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
 class ProductTemperatureController extends Controller
 {
     private $classifier;
+    private $ruleBasedClassifier;
+    private $localAIClassifier;
 
     public function __construct(
         TemperatureClassifier $ruleBasedClassifier
     ) {
-        // Sử dụng AI (Gemini) nếu có API key, nếu không thì dùng rule-based
-        if (config('services.gemini.enabled') && !empty(config('services.gemini.api_key'))) {
-            $this->classifier = new AITemperatureClassifier($ruleBasedClassifier);
-        } else {
-            $this->classifier = $ruleBasedClassifier;
+        $this->ruleBasedClassifier = $ruleBasedClassifier;
+        
+        // Chỉ dùng Local AI nếu enabled (không dùng Gemini API nữa)
+        if (config('services.local_ai.enabled')) {
+            $this->localAIClassifier = new LocalAITemperatureClassifier($ruleBasedClassifier);
         }
+        
+        // Mặc định dùng rule-based
+        $this->classifier = $ruleBasedClassifier;
     }
 
     /**
@@ -55,7 +60,18 @@ class ProductTemperatureController extends Controller
                 $categoryName = $p['category']['name'] ?? $p['categoryName'] ?? null;
                 $attributes = $p['attributes'] ?? null;
 
-                $classification = $this->classifier->classify($name, $categoryName, $attributes);
+                // Ưu tiên rule-based trước
+                $classification = $this->ruleBasedClassifier->classify($name, $categoryName, $attributes);
+                
+                // Nếu rule-based không chắc chắn (confidence < 0.8 hoặc UNKNOWN), thử Local AI
+                if ($this->localAIClassifier && 
+                    ($classification['confidence'] < 0.8 || $classification['temperature'] === 'UNKNOWN')) {
+                    $aiResult = $this->localAIClassifier->classify($name, $categoryName, $attributes);
+                    // Chỉ dùng AI nếu confidence cao hơn
+                    if ($aiResult && $aiResult['confidence'] > $classification['confidence']) {
+                        $classification = $aiResult;
+                    }
+                }
 
                 $result[] = [
                     'id' => $id,
@@ -130,11 +146,26 @@ class ProductTemperatureController extends Controller
                     $attributes = json_decode($attributes, true) ?: null;
                 }
                 
-                $classification = $this->classifier->classify(
+                // Ưu tiên rule-based trước
+                $classification = $this->ruleBasedClassifier->classify(
                     $product->name,
                     $product->category->name ?? null,
                     $attributes
                 );
+                
+                // Nếu rule-based không chắc chắn (confidence < 0.8 hoặc UNKNOWN), thử Local AI
+                if ($this->localAIClassifier && 
+                    ($classification['confidence'] < 0.8 || $classification['temperature'] === 'UNKNOWN')) {
+                    $aiResult = $this->localAIClassifier->classify(
+                        $product->name,
+                        $product->category->name ?? null,
+                        $attributes
+                    );
+                    // Chỉ dùng AI nếu confidence cao hơn
+                    if ($aiResult && $aiResult['confidence'] > $classification['confidence']) {
+                        $classification = $aiResult;
+                    }
+                }
 
                 $result[] = [
                     'id' => $product->id,
@@ -216,11 +247,26 @@ class ProductTemperatureController extends Controller
                     $attributes = json_decode($attributes, true) ?: null;
                 }
                 
-                $classification = $this->classifier->classify(
+                // Ưu tiên rule-based trước
+                $classification = $this->ruleBasedClassifier->classify(
                     $product->name,
                     $product->category->name ?? null,
                     $attributes
                 );
+                
+                // Nếu rule-based không chắc chắn (confidence < 0.8 hoặc UNKNOWN), thử Local AI
+                if ($this->localAIClassifier && 
+                    ($classification['confidence'] < 0.8 || $classification['temperature'] === 'UNKNOWN')) {
+                    $aiResult = $this->localAIClassifier->classify(
+                        $product->name,
+                        $product->category->name ?? null,
+                        $attributes
+                    );
+                    // Chỉ dùng AI nếu confidence cao hơn
+                    if ($aiResult && $aiResult['confidence'] > $classification['confidence']) {
+                        $classification = $aiResult;
+                    }
+                }
 
                 if ($classification['temperature'] === $desiredTemperature && 
                     $classification['confidence'] >= $minConfidence) {
@@ -279,10 +325,13 @@ class ProductTemperatureController extends Controller
      */
     public function checkAIStatus(Request $request)
     {
-        $isAIEnabled = config('services.gemini.enabled') && !empty(config('services.gemini.api_key'));
-        $apiKey = config('services.gemini.api_key');
-        $model = config('services.gemini.model', 'gemini-pro');
-        $classifierType = $isAIEnabled ? 'AITemperatureClassifier (Gemini)' : 'TemperatureClassifier (Rule-Based)';
+        $isLocalAIEnabled = config('services.local_ai.enabled');
+        $localAIUrl = config('services.local_ai.url', 'http://127.0.0.1:9009');
+        
+        $classifierType = 'TemperatureClassifier (Rule-Based)';
+        if ($isLocalAIEnabled) {
+            $classifierType = 'Rule-Based + LocalAITemperatureClassifier (ML Model)';
+        }
 
         // Test với một sản phẩm mẫu
         $testProduct = [
@@ -290,27 +339,44 @@ class ProductTemperatureController extends Controller
             'categoryName' => 'Cà phê'
         ];
 
-        $result = $this->classifier->classify(
+        // Test rule-based
+        $ruleResult = $this->ruleBasedClassifier->classify(
             $testProduct['name'],
             $testProduct['categoryName']
         );
+        
+        // Test Local AI nếu enabled
+        $aiResult = null;
+        if ($this->localAIClassifier) {
+            $aiResult = $this->localAIClassifier->classify(
+                $testProduct['name'],
+                $testProduct['categoryName']
+            );
+        }
 
         return response()->json([
             'success' => true,
             'ai_status' => [
-                'enabled' => $isAIEnabled,
-                'api_key_set' => !empty($apiKey),
-                'api_key_preview' => $apiKey ? substr($apiKey, 0, 10) . '...' : null,
-                'model' => $model,
-                'classifier_type' => $classifierType,
+                'local_ai' => [
+                    'enabled' => $isLocalAIEnabled,
+                    'url' => $localAIUrl,
+                ],
+                'active_classifier_type' => $classifierType,
+                'priority_order' => [
+                    '1. Rule-Based (TemperatureClassifier)',
+                    '2. Local AI (LocalAITemperatureClassifier) - chỉ khi rule-based không chắc chắn',
+                ],
             ],
             'test_result' => [
                 'product' => $testProduct,
-                'classification' => $result,
-                'is_using_ai' => $result['source'] === 'AI',
+                'rule_based' => $ruleResult,
+                'local_ai' => $aiResult,
+                'final_classification' => $aiResult && $aiResult['confidence'] > $ruleResult['confidence'] 
+                    ? $aiResult 
+                    : $ruleResult,
             ],
             'instructions' => [
-                'check_source' => 'Kiểm tra field "source" trong response: "AI" = đang dùng Gemini, "RULE" = đang dùng keyword matching',
+                'check_source' => 'Kiểm tra field "source": "RULE" = rule-based, "LOCAL_AI" = Local AI, "ATTRIBUTE" = từ attributes',
                 'test_endpoint' => 'GET /api/products/classify-temperature?limit=5',
                 'suggest_endpoint' => 'GET /api/products/suggest-by-temperature?temperature=COLD&limit=5',
             ]

@@ -70,11 +70,11 @@ class CategorySeeder extends Seeder
                         'description' => 'Bánh mì sandwich, bánh mì nướng, croissant.',
                         'position' => 2,
                     ],
-                    [
+            [
                         'name' => 'Món ăn nhanh',
                         'slug' => 'fast-food',
                         'description' => 'Khoai tây chiên, gà rán, burger, hot dog.',
-                        'position' => 3,
+                'position' => 3,
                     ],
                     [
                         'name' => 'Món chính',

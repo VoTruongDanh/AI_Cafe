@@ -54,6 +54,7 @@ const AdminPromotions = lazy(() => import('./pages/admin/Promotions'))
 const AdminInventory = lazy(() => import('./pages/admin/Inventory'))
 const AdminAnalytics = lazy(() => import('./pages/admin/Analytics'))
 const AdminProfile = lazy(() => import('./pages/admin/Profile'))
+const AdminAIClassification = lazy(() => import('./pages/admin/AIClassification'))
 
 // Protected Route components
 import ProtectedRoute from './components/auth/ProtectedRoute'
@@ -230,6 +231,7 @@ const AppContent = () => {
             <Route path="promotions" element={<AdminPromotions />} />
             <Route path="inventory" element={<AdminInventory />} />
             <Route path="analytics" element={<AdminAnalytics />} />
+            <Route path="ai-classification" element={<AdminAIClassification />} />
             <Route path="profile" element={<AdminProfile />} />
           </Route>
 

@@ -55,4 +55,13 @@ return [
         'model' => env('GEMINI_MODEL', 'gemini-2.0-flash-exp'),
     ],
 
+    'local_ai' => [
+        'url' => env('LOCAL_AI_URL', 'http://127.0.0.1:9009'),
+        'enabled' => env('LOCAL_AI_ENABLED', true),
+    ],
+
+    'openweather' => [
+        'api_key' => env('OPENWEATHER_API_KEY'),
+    ],
+
 ];

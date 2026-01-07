@@ -29,6 +29,14 @@ class Kernel extends ConsoleKernel
             ->withoutOverlapping()
             ->runInBackground()
             ->appendOutputTo(storage_path('logs/cancel-expired-orders.log'));
+
+        // ✅ Train local AI model định kỳ (mỗi ngày lúc 2h sáng)
+        if (config('services.local_ai.enabled')) {
+            $schedule->command('ai:train-local')
+                ->dailyAt('02:00')
+                ->withoutOverlapping()
+                ->appendOutputTo(storage_path('logs/train-local-ai.log'));
+        }
     }
 
     /**

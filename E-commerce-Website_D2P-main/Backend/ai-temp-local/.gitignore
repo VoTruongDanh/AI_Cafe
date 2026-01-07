@@ -1,0 +1,21 @@
+# Dataset và model (không commit vào git)
+dataset.jsonl
+model.joblib
+*.joblib
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo

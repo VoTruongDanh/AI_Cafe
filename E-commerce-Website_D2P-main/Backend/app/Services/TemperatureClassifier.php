@@ -71,9 +71,14 @@ class TemperatureClassifier
 
         // Suy luận từ danh mục
         $categoryLower = mb_strtolower($categoryName ?? '', 'UTF-8');
-        if (str_contains($categoryLower, 'ca phe') || str_contains($categoryLower, 'coffee')) {
-            // Mặc định cà phê là nóng, trừ khi có "đá"
-            if (str_contains($text, 'da') || str_contains($text, 'ice')) {
+        $textLower = mb_strtolower($text, 'UTF-8');
+        
+        // Kiểm tra danh mục cà phê (cả tiếng Việt và tiếng Anh)
+        if (str_contains($categoryLower, 'ca phe') || str_contains($categoryLower, 'coffee') ||
+            str_contains($textLower, 'ca phe') || str_contains($textLower, 'coffee')) {
+            // Mặc định cà phê là nóng, trừ khi có "đá" hoặc "ice"
+            if (str_contains($textLower, 'da') || str_contains($textLower, 'ice') || 
+                str_contains($textLower, 'iced')) {
                 return [
                     'temperature' => 'COLD',
                     'confidence' => 0.85,
@@ -81,11 +86,23 @@ class TemperatureClassifier
                     'reason' => 'Cà phê có đá'
                 ];
             }
+            // Các loại cà phê đặc biệt (Espresso, Cappuccino, Latte, Americano) đều là nóng
+            // Confidence thấp (0.5) để ưu tiên AI model (đã được train với dữ liệu chính xác)
+            if (str_contains($textLower, 'espresso') || str_contains($textLower, 'cappuccino') ||
+                str_contains($textLower, 'latte') || str_contains($textLower, 'americano') ||
+                str_contains($textLower, 'macchiato') || str_contains($textLower, 'mocha')) {
+                return [
+                    'temperature' => 'HOT',
+                    'confidence' => 0.50,
+                    'source' => 'RULE',
+                    'reason' => 'Cà phê đặc biệt (Espresso, Cappuccino, Latte, etc.) - để AI model phân loại chính xác'
+                ];
+            }
             return [
                 'temperature' => 'HOT',
-                'confidence' => 0.75,
+                'confidence' => 0.50,
                 'source' => 'RULE',
-                'reason' => 'Cà phê mặc định là nóng'
+                'reason' => 'Cà phê mặc định là nóng - để AI model phân loại chính xác'
             ];
         }
 

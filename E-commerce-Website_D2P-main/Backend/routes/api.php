@@ -26,6 +26,7 @@ use App\Http\Controllers\Api\WishlistController;
 use App\Http\Controllers\Api\ContactController;
 use App\Http\Controllers\Api\RecentlyViewedController;
 use App\Http\Controllers\Api\ProductTemperatureController;
+use App\Http\Controllers\Api\WeatherController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -151,6 +152,11 @@ Route::middleware('auth:sanctum')->group(function () {
 
 // Public routes (đã xóa cache middleware)
 Route::apiResource('categories', CategoryController::class)->only(['index', 'show']);
+
+// Weather API (Public)
+Route::prefix('weather')->group(function () {
+    Route::get('temperature', [WeatherController::class, 'getTemperature']);
+});
 
 // Product Temperature Classification API (Public) - Phải đặt TRƯỚC apiResource products
 Route::prefix('products')->group(function () {

@@ -29,6 +29,7 @@ import {
   LocalOffer as LocalOfferIcon,
   Inventory as InventoryBoxIcon,
   Analytics as AnalyticsIcon,
+  Psychology as PsychologyIcon,
   Logout as LogoutIcon,
   Menu as MenuIcon,
   Person,
@@ -74,6 +75,10 @@ const AnalyticsCustomIcon = () => (
   <img src="/admin/icon/icon_analytics.png" alt="Phân tích" style={{ width: 24, height: 24 }} />
 )
 
+const AICustomIcon = () => (
+  <PsychologyIcon sx={{ fontSize: 24 }} />
+)
+
 const menuItems = [
   { text: 'Dashboard', icon: DashboardCustomIcon, path: 'dashboard' },
   { text: 'Sản phẩm', icon: ProductCustomIcon, path: 'products' },
@@ -83,6 +88,7 @@ const menuItems = [
   { text: 'Khuyến mãi', icon: PromotionCustomIcon, path: 'promotions' },
   { text: 'Tồn kho', icon: InventoryCustomIcon, path: 'inventory' },
   { text: 'Phân tích', icon: AnalyticsCustomIcon, path: 'analytics' },
+  { text: 'AI Phân Loại', icon: AICustomIcon, path: 'ai-classification' },
 ]
 
 const AdminLayout = () => {
