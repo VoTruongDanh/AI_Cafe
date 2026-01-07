@@ -35,6 +35,132 @@ def normalize_vi(s: str) -> str:
     s = re.sub(r"\s+", " ", s).strip()
     return s
 
+def remove_vietnamese_accents(s: str) -> str:
+    """Bỏ dấu tiếng Việt"""
+    accents = {
+        'à': 'a', 'á': 'a', 'ạ': 'a', 'ả': 'a', 'ã': 'a',
+        'â': 'a', 'ầ': 'a', 'ấ': 'a', 'ậ': 'a', 'ẩ': 'a', 'ẫ': 'a',
+        'ă': 'a', 'ằ': 'a', 'ắ': 'a', 'ặ': 'a', 'ẳ': 'a', 'ẵ': 'a',
+        'è': 'e', 'é': 'e', 'ẹ': 'e', 'ẻ': 'e', 'ẽ': 'e',
+        'ê': 'e', 'ề': 'e', 'ế': 'e', 'ệ': 'e', 'ể': 'e', 'ễ': 'e',
+        'ì': 'i', 'í': 'i', 'ị': 'i', 'ỉ': 'i', 'ĩ': 'i',
+        'ò': 'o', 'ó': 'o', 'ọ': 'o', 'ỏ': 'o', 'õ': 'o',
+        'ô': 'o', 'ồ': 'o', 'ố': 'o', 'ộ': 'o', 'ổ': 'o', 'ỗ': 'o',
+        'ơ': 'o', 'ờ': 'o', 'ớ': 'o', 'ợ': 'o', 'ở': 'o', 'ỡ': 'o',
+        'ù': 'u', 'ú': 'u', 'ụ': 'u', 'ủ': 'u', 'ũ': 'u',
+        'ư': 'u', 'ừ': 'u', 'ứ': 'u', 'ự': 'u', 'ử': 'u', 'ữ': 'u',
+        'ỳ': 'y', 'ý': 'y', 'ỵ': 'y', 'ỷ': 'y', 'ỹ': 'y',
+        'đ': 'd', 'Đ': 'd'
+    }
+    result = ""
+    for char in s:
+        result += accents.get(char, char)
+    return result
+
+def contains_any(text: str, keywords: List[str]) -> bool:
+    """Kiểm tra text có chứa bất kỳ keyword nào không"""
+    for kw in keywords:
+        kw = kw.strip()
+        if not kw:
+            continue
+        
+        # Phrase có khoảng trắng => tìm exact match
+        if ' ' in kw:
+            if kw in text:
+                return True
+            continue
+        
+        # Match theo word boundary để giảm false positive
+        pattern = r'(^|\W)' + re.escape(kw) + r'(\W|$)'
+        if re.search(pattern, text, re.IGNORECASE):
+            return True
+    return False
+
+def classify_rule_based(name: str, category_name: Optional[str] = None) -> dict:
+    """Rule-based classification (tích hợp từ TemperatureClassifier.php)"""
+    # Keywords cho đồ uống/món ăn lạnh
+    cold_keywords = [
+        'da', 'iced', 'ice', 'lanh', 'frozen', 'smoothie', 'sinh to',
+        'kem', 'tra sua', 'nuoc ep', 'juice', 'cold', 'freeze',
+        'ca phe da', 'tra da', 'nuoc ngot', 'soft drink', 'soda'
+    ]
+    
+    # Keywords cho đồ uống/món ăn nóng
+    hot_keywords = [
+        'nong', 'hot', 'am', 'warm', 'steaming', 'boiling',
+        'ca phe nong', 'tra nong', 'soup', 'lau', 'sup',
+        'pho', 'bun', 'mi', 'noodle soup'
+    ]
+    
+    # Chuẩn hóa text
+    text = normalize_vi(f"{name} | {category_name or ''}")
+    
+    # Kiểm tra keywords lạnh
+    if contains_any(text, cold_keywords):
+        return {
+            'temperature': 'COLD',
+            'confidence': 0.95,
+            'source': 'RULE',
+            'reason': 'Tìm thấy keyword lạnh trong tên/danh mục'
+        }
+    
+    # Kiểm tra keywords nóng
+    if contains_any(text, hot_keywords):
+        return {
+            'temperature': 'HOT',
+            'confidence': 0.90,
+            'source': 'RULE',
+            'reason': 'Tìm thấy keyword nóng trong tên/danh mục'
+        }
+    
+    # Suy luận từ danh mục
+    category_lower = (category_name or '').lower()
+    text_lower = text.lower()
+    
+    # Kiểm tra danh mục cà phê
+    if 'ca phe' in category_lower or 'coffee' in category_lower or \
+       'ca phe' in text_lower or 'coffee' in text_lower:
+        # Mặc định cà phê là nóng, trừ khi có "đá" hoặc "ice"
+        if 'da' in text_lower or 'ice' in text_lower or 'iced' in text_lower:
+            return {
+                'temperature': 'COLD',
+                'confidence': 0.85,
+                'source': 'RULE',
+                'reason': 'Cà phê có đá'
+            }
+        # Các loại cà phê đặc biệt (Espresso, Cappuccino, Latte, Americano) đều là nóng
+        # Confidence thấp (0.5) để ưu tiên AI model
+        if any(kw in text_lower for kw in ['espresso', 'cappuccino', 'latte', 'americano', 'macchiato', 'mocha']):
+            return {
+                'temperature': 'HOT',
+                'confidence': 0.50,
+                'source': 'RULE',
+                'reason': 'Cà phê đặc biệt (Espresso, Cappuccino, Latte, etc.) - để AI model phân loại chính xác'
+            }
+        return {
+            'temperature': 'HOT',
+            'confidence': 0.50,
+            'source': 'RULE',
+            'reason': 'Cà phê mặc định là nóng - để AI model phân loại chính xác'
+        }
+    
+    # Suy luận từ món ăn nóng
+    if any(kw in text for kw in ['lau', 'sup', 'pho', 'bun']):
+        return {
+            'temperature': 'HOT',
+            'confidence': 0.70,
+            'source': 'RULE',
+            'reason': 'Món ăn nóng (lẩu, súp, phở, bún)'
+        }
+    
+    # Mặc định: không xác định
+    return {
+        'temperature': 'UNKNOWN',
+        'confidence': 0.50,
+        'source': 'UNKNOWN',
+        'reason': 'Không đủ dấu hiệu để phân loại nhiệt độ'
+    }
+
 def load_model():
     """Load model từ file"""
     if MODEL_PATH.exists():
@@ -122,24 +248,40 @@ def collect(item: CollectItem):
 
 @app.post("/predict")
 def predict(req: PredictRequest):
-    """Dự đoán nhiệt độ cho danh sách sản phẩm"""
+    """Dự đoán nhiệt độ cho danh sách sản phẩm
+    Ưu tiên: Rule-based trước → AI Model sau
+    """
     global MODEL
     
-    if MODEL is None:
-        # Chưa có model thì trả UNKNOWN hết
-        return [
-            {
-                "id": it.id,
-                "temperature": "UNKNOWN",
-                "confidence": 0.0,
-                "source": "NO_MODEL",
-                "reason": "Model chưa được train"
-            }
-            for it in req.items
-        ]
-
     out = []
     for it in req.items:
+        # Bước 1: Rule-based classification trước (nhanh, không cần model)
+        rule_result = classify_rule_based(it.name, it.categoryName)
+        
+        # Nếu rule-based có kết quả chắc chắn (confidence >= 0.8)
+        if rule_result['confidence'] >= 0.8 and rule_result['temperature'] in ['HOT', 'COLD']:
+            out.append({
+                "id": it.id,
+                "temperature": rule_result['temperature'],
+                "confidence": rule_result['confidence'],
+                "source": rule_result['source'],
+                "reason": rule_result['reason']
+            })
+            continue  # Bỏ qua AI Model, trả về ngay
+        
+        # Bước 2: Nếu rule-based không chắc chắn, thử dùng AI Model
+        if MODEL is None:
+            # Chưa có model thì trả về kết quả rule-based (có thể là UNKNOWN)
+            out.append({
+                "id": it.id,
+                "temperature": rule_result['temperature'],
+                "confidence": rule_result['confidence'],
+                "source": "NO_MODEL",
+                "reason": f"Model chưa được train. {rule_result['reason']}"
+            })
+            continue
+        
+        # Có model, thử dự đoán
         text = normalize_vi(f"{it.name} | {it.categoryName or ''}")
         try:
             proba = MODEL.predict_proba([text])[0]
@@ -149,30 +291,43 @@ def predict(req: PredictRequest):
             conf = float(proba[best])
 
             # Ngưỡng an toàn: confidence < 0.60 => UNKNOWN
-            # Hạ xuống 0.60 vì model đã được train với accuracy 97.14%
             if conf < 0.60:
+                # Model không chắc, trả về kết quả rule-based (có thể tốt hơn)
                 out.append({
                     "id": it.id,
-                    "temperature": "UNKNOWN",
-                    "confidence": conf,
-                    "source": "MODEL",
-                    "reason": f"Model confidence thấp ({conf:.2f})"
+                    "temperature": rule_result['temperature'],
+                    "confidence": rule_result['confidence'],
+                    "source": rule_result['source'],
+                    "reason": f"Model confidence thấp ({conf:.2f}). {rule_result['reason']}"
                 })
             else:
-                out.append({
-                    "id": it.id,
-                    "temperature": label,
-                    "confidence": conf,
-                    "source": "MODEL",
-                    "reason": f"Model dự đoán với confidence {conf:.2f}"
-                })
+                # Model có kết quả tốt, so sánh với rule-based
+                # Ưu tiên model nếu confidence cao hơn hoặc rule-based là UNKNOWN
+                if conf > rule_result['confidence'] or rule_result['temperature'] == 'UNKNOWN':
+                    out.append({
+                        "id": it.id,
+                        "temperature": label,
+                        "confidence": conf,
+                        "source": "MODEL",
+                        "reason": f"Model dự đoán với confidence {conf:.2f}"
+                    })
+                else:
+                    # Rule-based tốt hơn
+                    out.append({
+                        "id": it.id,
+                        "temperature": rule_result['temperature'],
+                        "confidence": rule_result['confidence'],
+                        "source": rule_result['source'],
+                        "reason": rule_result['reason']
+                    })
         except Exception as e:
+            # Lỗi model, trả về kết quả rule-based
             out.append({
                 "id": it.id,
-                "temperature": "UNKNOWN",
-                "confidence": 0.0,
+                "temperature": rule_result['temperature'],
+                "confidence": rule_result['confidence'],
                 "source": "MODEL_ERROR",
-                "reason": str(e)
+                "reason": f"Lỗi model: {str(e)}. {rule_result['reason']}"
             })
     
     return out

@@ -8,23 +8,22 @@ use Illuminate\Support\Facades\Log;
 /**
  * Local AI Temperature Classifier
  * Gọi AI service local (Python FastAPI) để phân loại nhiệt độ
+ * AI service đã tích hợp rule-based, không cần rule-based ở Backend nữa
  * Hoàn toàn tách biệt khỏi database
  */
 class LocalAITemperatureClassifier
 {
-    private TemperatureClassifier $ruleBasedClassifier;
     private string $aiServiceUrl;
     private bool $useAI;
 
-    public function __construct(TemperatureClassifier $ruleBasedClassifier)
+    public function __construct()
     {
-        $this->ruleBasedClassifier = $ruleBasedClassifier;
         $this->aiServiceUrl = config('services.local_ai.url', 'http://127.0.0.1:9009');
         $this->useAI = config('services.local_ai.enabled', true);
     }
 
     /**
-     * Phân loại nhiệt độ: Rule-based trước, AI local sau
+     * Phân loại nhiệt độ: Gọi AI service (đã tích hợp rule-based + model)
      *
      * @param string|null $name Tên sản phẩm
      * @param string|null $categoryName Tên danh mục
@@ -38,7 +37,7 @@ class LocalAITemperatureClassifier
             $attributes = json_decode($attributes, true) ?: null;
         }
 
-        // Kiểm tra trong attributes trước (ưu tiên cao nhất)
+        // Kiểm tra trong attributes trước (ưu tiên cao nhất - từ database)
         if ($attributes && is_array($attributes) && isset($attributes['temperature'])) {
             $temp = strtoupper($attributes['temperature']);
             if (in_array($temp, ['HOT', 'COLD', 'ROOM'])) {
@@ -53,41 +52,32 @@ class LocalAITemperatureClassifier
             }
         }
 
-        // Rule-based classification trước (nhanh)
-        $ruleResult = $this->ruleBasedClassifier->classify($name, $categoryName, $attributes);
-
-        // Nếu rule-based có kết quả chắc chắn (confidence >= 0.8)
-        if ($ruleResult['confidence'] >= 0.8 && in_array($ruleResult['temperature'], ['HOT', 'COLD'])) {
-            // Gửi mẫu có nhãn để train
-            $this->collectSample(
-                $name,
-                $categoryName,
-                $ruleResult['temperature'],
-                $ruleResult['source'],
-                $ruleResult['confidence']
-            );
-            return $ruleResult;
-        }
-
-        // Nếu không chắc chắn, thử dùng AI local
+        // Gọi AI service (đã tích hợp rule-based + model)
         if ($this->useAI && !empty($name)) {
             $aiResult = $this->predictWithAI($name, $categoryName);
             
-            // Nếu AI có kết quả và confidence >= 0.60 (ngưỡng trong api.py)
-            if ($aiResult && $aiResult['temperature'] !== 'UNKNOWN' && $aiResult['confidence'] >= 0.60) {
-                // Chỉ dùng AI nếu confidence cao hơn rule-based hoặc rule-based là UNKNOWN
-                if ($aiResult['confidence'] > $ruleResult['confidence'] || $ruleResult['temperature'] === 'UNKNOWN') {
-                    return $aiResult;
+            if ($aiResult) {
+                // Nếu AI trả về kết quả tốt, gửi mẫu để train (nếu có nhãn)
+                if ($aiResult['temperature'] !== 'UNKNOWN' && $aiResult['confidence'] >= 0.8) {
+                    $this->collectSample(
+                        $name,
+                        $categoryName,
+                        $aiResult['temperature'],
+                        $aiResult['source'],
+                        $aiResult['confidence']
+                    );
                 }
-            }
-            
-            // Nếu AI không có model hoặc không chắc, gửi mẫu để train sau
-            if (!$aiResult || $aiResult['source'] === 'NO_MODEL' || ($aiResult && $aiResult['temperature'] === 'UNKNOWN')) {
-                $this->collectSample($name, $categoryName, null, 'UNKNOWN', $ruleResult['confidence']);
+                return $aiResult;
             }
         }
 
-        return $ruleResult;
+        // Fallback: nếu AI service không khả dụng
+        return [
+            'temperature' => 'UNKNOWN',
+            'confidence' => 0.0,
+            'source' => 'AI_SERVICE_UNAVAILABLE',
+            'reason' => 'AI service không khả dụng'
+        ];
     }
 
     /**
@@ -164,55 +154,82 @@ class LocalAITemperatureClassifier
     }
 
     /**
-     * Phân loại hàng loạt (batch)
+     * Phân loại hàng loạt (batch) - gọi AI service batch
      */
     public function classifyBatch(array $products): array
     {
-        $results = [];
-        $unknownItems = [];
+        if (!$this->useAI) {
+            // Nếu AI không bật, trả về UNKNOWN cho tất cả
+            return array_map(function ($product) {
+                return array_merge($product, [
+                    'temperature' => 'UNKNOWN',
+                    'confidence' => 0.0,
+                    'source' => 'AI_DISABLED',
+                    'reason' => 'AI service không được bật'
+                ]);
+            }, $products);
+        }
 
-        // Phân loại từng sản phẩm
-        foreach ($products as $product) {
+        // Chuẩn bị items để gọi AI batch
+        $items = [];
+        $productMap = []; // Map để ghép kết quả lại
+
+        foreach ($products as $index => $product) {
             $name = $product['name'] ?? null;
             $categoryName = $product['categoryName'] ?? $product['category']['name'] ?? null;
             $attributes = $product['attributes'] ?? null;
 
-            $result = $this->classify($name, $categoryName, $attributes);
-            
-            // Nếu không chắc chắn, thêm vào danh sách để gọi AI batch
-            if ($result['confidence'] < 0.8 && $result['temperature'] === 'UNKNOWN') {
-                $unknownItems[] = [
-                    'id' => $product['id'] ?? null,
-                    'name' => $name,
-                    'categoryName' => $categoryName
-                ];
-            }
-
-            $results[] = array_merge($product, $result);
-        }
-
-        // Nếu có sản phẩm không chắc, gọi AI batch
-        if (!empty($unknownItems) && $this->useAI) {
-            $aiResults = $this->predictBatchWithAI($unknownItems);
-            if ($aiResults) {
-                // Cập nhật kết quả từ AI
-                foreach ($results as &$result) {
-                    foreach ($aiResults as $aiResult) {
-                        if (($result['id'] ?? null) === ($aiResult['id'] ?? null)) {
-                            if ($aiResult['confidence'] > $result['confidence']) {
-                                $result['temperature'] = $aiResult['temperature'];
-                                $result['confidence'] = $aiResult['confidence'];
-                                $result['source'] = $aiResult['source'];
-                                $result['reason'] = $aiResult['reason'] ?? $result['reason'];
-                            }
-                            break;
-                        }
-                    }
+            // Kiểm tra attributes trước (ưu tiên cao nhất)
+            if ($attributes && is_array($attributes) && isset($attributes['temperature'])) {
+                $temp = strtoupper($attributes['temperature']);
+                if (in_array($temp, ['HOT', 'COLD', 'ROOM'])) {
+                    $results[$index] = array_merge($product, [
+                        'temperature' => $temp,
+                        'confidence' => 1.0,
+                        'source' => 'ATTRIBUTE',
+                        'reason' => 'Nhiệt độ được chỉ định trong attributes'
+                    ]);
+                    continue;
                 }
             }
+
+            // Thêm vào danh sách gọi AI
+            $items[] = [
+                'id' => $product['id'] ?? null,
+                'name' => $name,
+                'categoryName' => $categoryName
+            ];
+            $productMap[count($items) - 1] = $index;
         }
 
-        return $results;
+        // Gọi AI batch
+        $aiResults = $this->predictBatchWithAI($items);
+        $results = [];
+
+        // Ghép kết quả
+        foreach ($products as $index => $product) {
+            // Nếu đã có kết quả từ attributes, bỏ qua
+            if (isset($results[$index])) {
+                continue;
+            }
+
+            // Tìm kết quả từ AI
+            $aiIndex = array_search($index, $productMap);
+            if ($aiIndex !== false && isset($aiResults[$aiIndex])) {
+                $aiResult = $aiResults[$aiIndex];
+                $results[$index] = array_merge($product, $aiResult);
+            } else {
+                // Fallback
+                $results[$index] = array_merge($product, [
+                    'temperature' => 'UNKNOWN',
+                    'confidence' => 0.0,
+                    'source' => 'AI_SERVICE_ERROR',
+                    'reason' => 'Không nhận được kết quả từ AI service'
+                ]);
+            }
+        }
+
+        return array_values($results);
     }
 
     /**

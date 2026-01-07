@@ -1,0 +1,385 @@
+{"text": "espresso | ca phe", "label": "HOT", "source": "MANUAL", "confidence": 1.0, "ts": "2026-01-07T14:09:59.648576+07:00"}
+{"text": "cappuccino | ca phe", "label": "HOT", "source": "MANUAL", "confidence": 1.0, "ts": "2026-01-07T14:09:59.648576+07:00"}
+{"text": "latte | ca phe", "label": "HOT", "source": "MANUAL", "confidence": 1.0, "ts": "2026-01-07T14:09:59.648576+07:00"}
+{"text": "cheesecake | banh ngot", "label": "COLD", "source": "MANUAL", "confidence": 1.0, "ts": "2026-01-07T14:09:59.649525+07:00"}
+{"text": "tiramisu | banh ngot", "label": "COLD", "source": "MANUAL", "confidence": 1.0, "ts": "2026-01-07T14:09:59.649525+07:00"}
+{"text": "khoai tay chien | mon an nhanh", "label": "HOT", "source": "MANUAL", "confidence": 1.0, "ts": "2026-01-07T14:09:59.649525+07:00"}
+{"text": "ga ran | mon an nhanh", "label": "HOT", "source": "MANUAL", "confidence": 1.0, "ts": "2026-01-07T14:09:59.649525+07:00"}
+{"text": "burger bo | mon an nhanh", "label": "HOT", "source": "MANUAL", "confidence": 1.0, "ts": "2026-01-07T14:09:59.649525+07:00"}
+{"text": "com ga nuong | mon chinh", "label": "HOT", "source": "MANUAL", "confidence": 1.0, "ts": "2026-01-07T14:09:59.649525+07:00"}
+{"text": "pasta carbonara | mon chinh", "label": "HOT", "source": "MANUAL", "confidence": 1.0, "ts": "2026-01-07T14:09:59.649525+07:00"}
+{"text": "tra thao moc | tra", "label": "COLD", "source": "MANUAL", "confidence": 0.9, "ts": "2026-01-07T14:09:59.649525+07:00"}
+{"text": "banh mousse dau | banh ngot", "label": "COLD", "source": "MANUAL", "confidence": 1.0, "ts": "2026-01-07T14:09:59.649525+07:00"}
+{"text": "croissant | banh man", "label": "HOT", "source": "MANUAL", "confidence": 0.9, "ts": "2026-01-07T14:09:59.649525+07:00"}
+{"text": "ca phe den da | ca phe", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:10:09.735252+07:00"}
+{"text": "ca phe sua da | ca phe", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:10:09.764825+07:00"}
+{"text": "ca phe den nong | ca phe", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T14:10:09.771807+07:00"}
+{"text": "ca phe sua nong | ca phe", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T14:10:09.778890+07:00"}
+{"text": "americano | ca phe", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T14:10:09.807626+07:00"}
+{"text": "tra den da | tra", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:10:09.840586+07:00"}
+{"text": "tra sua | tra", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:10:09.873997+07:00"}
+{"text": "tra xanh da | tra", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:10:09.881461+07:00"}
+{"text": "nuoc ep cam | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:10:09.890909+07:00"}
+{"text": "nuoc ep dua hau | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:10:09.896174+07:00"}
+{"text": "sinh to bo | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:10:09.915679+07:00"}
+{"text": "sinh to dau tay | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:10:09.929455+07:00"}
+{"text": "sinh to xoai | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:10:09.935049+07:00"}
+{"text": "coca cola | nuoc ngot & nuoc co ga", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:10:09.959588+07:00"}
+{"text": "pepsi | nuoc ngot & nuoc co ga", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:10:09.964752+07:00"}
+{"text": "7up | nuoc ngot & nuoc co ga", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:10:09.989019+07:00"}
+{"text": "banh kem chocolate | banh ngot", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:10:09.992247+07:00"}
+{"text": "tiramisu | banh ngot", "label": "COLD", "source": "MANUAL", "confidence": 1.0, "ts": "2026-01-07T14:10:57.427918+07:00"}
+{"text": "banh mousse dau | banh ngot", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:10:10.023548+07:00"}
+{"text": "banh mi sandwich thit nguoi | banh man", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T14:10:10.040576+07:00"}
+{"text": "banh mi nuong bo toi | banh man", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T14:10:10.047827+07:00"}
+{"text": "pho bo | mon chinh", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T14:10:10.074001+07:00"}
+{"text": "ca phe den da | ca phe", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:13:14.562027+07:00"}
+{"text": "ca phe sua da | ca phe", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:13:14.578812+07:00"}
+{"text": "ca phe den nong | ca phe", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T14:13:14.611124+07:00"}
+{"text": "ca phe sua nong | ca phe", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T14:13:14.635322+07:00"}
+{"text": "americano | ca phe", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T14:13:14.642153+07:00"}
+{"text": "tra den da | tra", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:13:14.664197+07:00"}
+{"text": "tra sua | tra", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:13:14.669896+07:00"}
+{"text": "tra xanh da | tra", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:13:14.675935+07:00"}
+{"text": "nuoc ep cam | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:13:14.694291+07:00"}
+{"text": "nuoc ep dua hau | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:13:14.696502+07:00"}
+{"text": "sinh to bo | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:13:14.704447+07:00"}
+{"text": "sinh to dau tay | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:13:14.725726+07:00"}
+{"text": "sinh to xoai | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:13:14.734069+07:00"}
+{"text": "coca cola | nuoc ngot & nuoc co ga", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:13:14.744012+07:00"}
+{"text": "pepsi | nuoc ngot & nuoc co ga", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:13:14.765232+07:00"}
+{"text": "7up | nuoc ngot & nuoc co ga", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:13:14.790577+07:00"}
+{"text": "banh kem chocolate | banh ngot", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:13:14.807721+07:00"}
+{"text": "tiramisu | banh ngot", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T14:13:14.829653+07:00"}
+{"text": "banh mousse dau | banh ngot", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:13:14.858056+07:00"}
+{"text": "banh mi sandwich thit nguoi | banh man", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T14:13:14.886759+07:00"}
+{"text": "banh mi nuong bo toi | banh man", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T14:13:14.893081+07:00"}
+{"text": "pho bo | mon chinh", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T14:13:14.897592+07:00"}
+{"text": "espresso | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:18:15.505518+07:00"}
+{"text": "cappuccino | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:18:15.529928+07:00"}
+{"text": "latte | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:18:15.544909+07:00"}
+{"text": "americano | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:18:15.575858+07:00"}
+{"text": "tiramisu | banh ngot", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:18:15.624555+07:00"}
+{"text": "croissant | banh man", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:18:15.670882+07:00"}
+{"text": "khoai tay chien | mon an nhanh", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:18:15.686818+07:00"}
+{"text": "ga ran | mon an nhanh", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:18:15.701717+07:00"}
+{"text": "burger bo | mon an nhanh", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:18:15.747222+07:00"}
+{"text": "com ga nuong | mon chinh", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:18:15.763397+07:00"}
+{"text": "pasta carbonara | mon chinh", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:18:15.779494+07:00"}
+{"text": "banh quy bo | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:18:15.796955+07:00"}
+{"text": "hat dieu rang muoi | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:18:15.812588+07:00"}
+{"text": "capuchino | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:18:15.832867+07:00"}
+{"text": "croissant | banh man", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:19:56.278893+07:00"}
+{"text": "banh quy bo | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:19:56.414923+07:00"}
+{"text": "hat dieu rang muoi | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:19:56.462655+07:00"}
+{"text": "ca phe den da | ca phe", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:19:56.526177+07:00"}
+{"text": "ca phe sua da | ca phe", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:19:56.544858+07:00"}
+{"text": "ca phe den nong | ca phe", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T14:19:56.561015+07:00"}
+{"text": "ca phe sua nong | ca phe", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T14:19:56.581020+07:00"}
+{"text": "americano | ca phe", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T14:19:56.597009+07:00"}
+{"text": "tra den da | tra", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:19:56.628916+07:00"}
+{"text": "tra sua | tra", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:19:56.652703+07:00"}
+{"text": "tra xanh da | tra", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:19:56.670834+07:00"}
+{"text": "nuoc ep cam | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:19:56.701637+07:00"}
+{"text": "nuoc ep dua hau | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:19:56.726626+07:00"}
+{"text": "sinh to bo | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:19:56.735860+07:00"}
+{"text": "sinh to dau tay | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:19:56.760744+07:00"}
+{"text": "sinh to xoai | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:19:56.781797+07:00"}
+{"text": "coca cola | nuoc ngot & nuoc co ga", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:19:56.790218+07:00"}
+{"text": "pepsi | nuoc ngot & nuoc co ga", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:19:56.811264+07:00"}
+{"text": "7up | nuoc ngot & nuoc co ga", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:19:56.818585+07:00"}
+{"text": "banh kem chocolate | banh ngot", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:19:56.824320+07:00"}
+{"text": "tiramisu | banh ngot", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T14:19:56.831295+07:00"}
+{"text": "banh mousse dau | banh ngot", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T14:19:56.838310+07:00"}
+{"text": "banh mi sandwich thit nguoi | banh man", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T14:19:56.864301+07:00"}
+{"text": "banh mi nuong bo toi | banh man", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T14:19:56.875487+07:00"}
+{"text": "pho bo | mon chinh", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T14:19:56.899661+07:00"}
+{"text": "espresso | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:22:48.187998+07:00"}
+{"text": "cappuccino | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:22:48.225971+07:00"}
+{"text": "latte | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:22:48.276199+07:00"}
+{"text": "croissant | banh man", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:22:48.355593+07:00"}
+{"text": "banh quy bo | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:22:48.460788+07:00"}
+{"text": "hat dieu rang muoi | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:22:48.514933+07:00"}
+{"text": "espresso | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:26:02.334904+07:00"}
+{"text": "cappuccino | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:26:02.349858+07:00"}
+{"text": "latte | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:26:02.362081+07:00"}
+{"text": "croissant | banh man", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:26:02.459934+07:00"}
+{"text": "banh quy bo | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:26:02.529687+07:00"}
+{"text": "hat dieu rang muoi | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:26:02.566251+07:00"}
+{"text": "espresso | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:26:12.770279+07:00"}
+{"text": "cappuccino | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:26:12.802312+07:00"}
+{"text": "latte | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:26:12.816674+07:00"}
+{"text": "croissant | banh man", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:26:12.915335+07:00"}
+{"text": "banh quy bo | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:26:13.023475+07:00"}
+{"text": "hat dieu rang muoi | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:26:13.039478+07:00"}
+{"text": "espresso | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:26:13.891792+07:00"}
+{"text": "cappuccino | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:26:13.933756+07:00"}
+{"text": "latte | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:26:13.991275+07:00"}
+{"text": "croissant | banh man", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:26:14.080767+07:00"}
+{"text": "banh quy bo | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:26:14.184948+07:00"}
+{"text": "hat dieu rang muoi | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:26:14.225294+07:00"}
+{"text": "espresso | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:30:11.831643+07:00"}
+{"text": "cappuccino | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:30:11.855751+07:00"}
+{"text": "latte | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:30:11.917524+07:00"}
+{"text": "croissant | banh man", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:30:12.037389+07:00"}
+{"text": "banh quy bo | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:30:12.200693+07:00"}
+{"text": "hat dieu rang muoi | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:30:12.212233+07:00"}
+{"text": "espresso | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:30:28.739564+07:00"}
+{"text": "cappuccino | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:30:28.761805+07:00"}
+{"text": "latte | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:30:28.807494+07:00"}
+{"text": "croissant | banh man", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:30:28.948701+07:00"}
+{"text": "banh quy bo | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:30:29.026082+07:00"}
+{"text": "hat dieu rang muoi | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:30:29.044798+07:00"}
+{"text": "espresso | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:45:11.970990+07:00"}
+{"text": "cappuccino | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:45:11.999352+07:00"}
+{"text": "latte | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:45:12.040111+07:00"}
+{"text": "croissant | banh man", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:45:12.146091+07:00"}
+{"text": "banh quy bo | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:45:12.248638+07:00"}
+{"text": "hat dieu rang muoi | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:45:12.293230+07:00"}
+{"text": "espresso | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:58:40.489943+07:00"}
+{"text": "cappuccino | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:58:40.541207+07:00"}
+{"text": "latte | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:58:40.577244+07:00"}
+{"text": "croissant | banh man", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:58:40.731202+07:00"}
+{"text": "banh quy bo | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:58:40.855916+07:00"}
+{"text": "hat dieu rang muoi | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T14:58:40.904603+07:00"}
+{"text": "espresso | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:01:19.589116+07:00"}
+{"text": "cappuccino | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:01:19.615920+07:00"}
+{"text": "latte | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:01:19.641704+07:00"}
+{"text": "croissant | banh man", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:01:19.791977+07:00"}
+{"text": "banh quy bo | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:01:19.926305+07:00"}
+{"text": "hat dieu rang muoi | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:01:19.957221+07:00"}
+{"text": "espresso | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:01:26.212914+07:00"}
+{"text": "cappuccino | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:01:26.243267+07:00"}
+{"text": "latte | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:01:26.298507+07:00"}
+{"text": "croissant | banh man", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:01:26.401136+07:00"}
+{"text": "banh quy bo | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:01:26.577069+07:00"}
+{"text": "hat dieu rang muoi | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:01:26.614725+07:00"}
+{"text": "croissant | banh man", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:06:14.489510+07:00"}
+{"text": "banh quy bo | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:06:14.635671+07:00"}
+{"text": "hat dieu rang muoi | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:06:14.678007+07:00"}
+{"text": "espresso | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:10:49.135875+07:00"}
+{"text": "cappuccino | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:10:49.160904+07:00"}
+{"text": "latte | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:10:49.179446+07:00"}
+{"text": "croissant | banh man", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:10:49.303053+07:00"}
+{"text": "banh quy bo | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:10:49.398868+07:00"}
+{"text": "hat dieu rang muoi | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:10:49.408891+07:00"}
+{"text": "espresso | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:11:03.541943+07:00"}
+{"text": "cappuccino | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:11:03.572623+07:00"}
+{"text": "latte | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:11:03.603774+07:00"}
+{"text": "croissant | banh man", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:11:03.711709+07:00"}
+{"text": "banh quy bo | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:11:03.796675+07:00"}
+{"text": "hat dieu rang muoi | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:11:03.826411+07:00"}
+{"text": "espresso | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:12:42.148515+07:00"}
+{"text": "cappuccino | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:12:42.214054+07:00"}
+{"text": "latte | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:12:42.258902+07:00"}
+{"text": "croissant | banh man", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:12:42.438554+07:00"}
+{"text": "banh quy bo | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:12:42.576996+07:00"}
+{"text": "hat dieu rang muoi | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:12:42.605342+07:00"}
+{"text": "espresso | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:12:45.685070+07:00"}
+{"text": "cappuccino | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:12:45.724446+07:00"}
+{"text": "latte | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:12:45.757444+07:00"}
+{"text": "croissant | banh man", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:12:45.859699+07:00"}
+{"text": "banh quy bo | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:12:45.959787+07:00"}
+{"text": "hat dieu rang muoi | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:12:46.016128+07:00"}
+{"text": "espresso | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:14:15.736842+07:00"}
+{"text": "cappuccino | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:14:15.770780+07:00"}
+{"text": "latte | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:14:15.783849+07:00"}
+{"text": "croissant | banh man", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:14:15.895293+07:00"}
+{"text": "banh quy bo | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:14:16.059914+07:00"}
+{"text": "hat dieu rang muoi | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:14:16.096826+07:00"}
+{"text": "espresso | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:15:09.560992+07:00"}
+{"text": "cappuccino | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:15:09.603696+07:00"}
+{"text": "latte | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:15:09.637043+07:00"}
+{"text": "croissant | banh man", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:15:09.792783+07:00"}
+{"text": "banh quy bo | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:15:09.924905+07:00"}
+{"text": "hat dieu rang muoi | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:15:09.977164+07:00"}
+{"text": "espresso | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:16:20.779227+07:00"}
+{"text": "cappuccino | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:16:20.793666+07:00"}
+{"text": "latte | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:16:20.810668+07:00"}
+{"text": "croissant | banh man", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:16:20.874583+07:00"}
+{"text": "banh quy bo | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:16:20.946882+07:00"}
+{"text": "hat dieu rang muoi | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:16:20.975922+07:00"}
+{"text": "espresso | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:16:23.957418+07:00"}
+{"text": "cappuccino | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:16:23.999997+07:00"}
+{"text": "latte | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:16:24.042812+07:00"}
+{"text": "croissant | banh man", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:16:24.189018+07:00"}
+{"text": "banh quy bo | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:16:24.311467+07:00"}
+{"text": "hat dieu rang muoi | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:16:24.333479+07:00"}
+{"text": "macchiato | ca phe", "label": "HOT", "source": "MANUAL", "confidence": 1.0, "ts": "2026-01-07T15:20:07.597716+07:00"}
+{"text": "mocha | ca phe", "label": "HOT", "source": "MANUAL", "confidence": 1.0, "ts": "2026-01-07T15:20:07.597716+07:00"}
+{"text": "ca phe dac biet cua quan | ca phe", "label": "HOT", "source": "MANUAL", "confidence": 0.9, "ts": "2026-01-07T15:20:07.597716+07:00"}
+{"text": "tra den nong | tra", "label": "HOT", "source": "MANUAL", "confidence": 1.0, "ts": "2026-01-07T15:20:07.598654+07:00"}
+{"text": "tra xanh nong | tra", "label": "HOT", "source": "MANUAL", "confidence": 1.0, "ts": "2026-01-07T15:20:07.598654+07:00"}
+{"text": "tra thao moc nong | tra", "label": "HOT", "source": "MANUAL", "confidence": 1.0, "ts": "2026-01-07T15:20:07.599727+07:00"}
+{"text": "smoothie | nuoc ep & sinh to", "label": "COLD", "source": "MANUAL", "confidence": 1.0, "ts": "2026-01-07T15:20:07.600715+07:00"}
+{"text": "ice cream | banh ngot", "label": "COLD", "source": "MANUAL", "confidence": 1.0, "ts": "2026-01-07T15:20:07.601712+07:00"}
+{"text": "kem | banh ngot", "label": "COLD", "source": "MANUAL", "confidence": 1.0, "ts": "2026-01-07T15:20:07.601712+07:00"}
+{"text": "banh quy nong | banh man", "label": "HOT", "source": "MANUAL", "confidence": 1.0, "ts": "2026-01-07T15:20:07.601712+07:00"}
+{"text": "pizza | mon an nhanh", "label": "HOT", "source": "MANUAL", "confidence": 1.0, "ts": "2026-01-07T15:20:07.602659+07:00"}
+{"text": "hot dog | mon an nhanh", "label": "HOT", "source": "MANUAL", "confidence": 1.0, "ts": "2026-01-07T15:20:07.602659+07:00"}
+{"text": "bun bo | mon chinh", "label": "HOT", "source": "MANUAL", "confidence": 1.0, "ts": "2026-01-07T15:20:07.603169+07:00"}
+{"text": "mi quang | mon chinh", "label": "HOT", "source": "MANUAL", "confidence": 1.0, "ts": "2026-01-07T15:20:07.603169+07:00"}
+{"text": "com suon nuong | mon chinh", "label": "HOT", "source": "MANUAL", "confidence": 1.0, "ts": "2026-01-07T15:20:07.604183+07:00"}
+{"text": "spaghetti | mon chinh", "label": "HOT", "source": "MANUAL", "confidence": 1.0, "ts": "2026-01-07T15:20:07.604183+07:00"}
+{"text": "lau | mon chinh", "label": "HOT", "source": "MANUAL", "confidence": 1.0, "ts": "2026-01-07T15:20:07.605187+07:00"}
+{"text": "sup | mon chinh", "label": "HOT", "source": "MANUAL", "confidence": 1.0, "ts": "2026-01-07T15:20:07.605187+07:00"}
+{"text": "chao | mon chinh", "label": "HOT", "source": "MANUAL", "confidence": 1.0, "ts": "2026-01-07T15:20:07.605187+07:00"}
+{"text": "espresso | ca phe", "label": "HOT", "source": "KNOWLEDGE", "confidence": 1.0, "ts": "2026-01-07T15:20:07.606709+07:00"}
+{"text": "cappuccino | ca phe", "label": "HOT", "source": "KNOWLEDGE", "confidence": 1.0, "ts": "2026-01-07T15:20:07.607850+07:00"}
+{"text": "latte | ca phe", "label": "HOT", "source": "KNOWLEDGE", "confidence": 1.0, "ts": "2026-01-07T15:20:07.607850+07:00"}
+{"text": "khoai tay chien | mon an nhanh", "label": "HOT", "source": "KNOWLEDGE", "confidence": 1.0, "ts": "2026-01-07T15:20:07.607850+07:00"}
+{"text": "ga ran | mon an nhanh", "label": "HOT", "source": "KNOWLEDGE", "confidence": 1.0, "ts": "2026-01-07T15:20:07.608824+07:00"}
+{"text": "burger bo | mon an nhanh", "label": "HOT", "source": "KNOWLEDGE", "confidence": 1.0, "ts": "2026-01-07T15:20:07.608824+07:00"}
+{"text": "com ga nuong | mon chinh", "label": "HOT", "source": "KNOWLEDGE", "confidence": 1.0, "ts": "2026-01-07T15:20:07.608824+07:00"}
+{"text": "pasta carbonara | mon chinh", "label": "HOT", "source": "KNOWLEDGE", "confidence": 1.0, "ts": "2026-01-07T15:20:07.608824+07:00"}
+{"text": "croissant | banh man", "label": "HOT", "source": "KNOWLEDGE", "confidence": 1.0, "ts": "2026-01-07T15:20:07.609799+07:00"}
+{"text": "espresso | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:20:30.667371+07:00"}
+{"text": "cappuccino | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:20:30.728511+07:00"}
+{"text": "latte | ca phe", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:20:30.772691+07:00"}
+{"text": "croissant | banh man", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:20:30.913151+07:00"}
+{"text": "banh quy bo | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:20:31.006412+07:00"}
+{"text": "hat dieu rang muoi | snack & do an vat", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:20:31.056919+07:00"}
+{"text": "ca phe den da | ca phe", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T15:20:31.122108+07:00"}
+{"text": "ca phe sua da | ca phe", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T15:20:31.145919+07:00"}
+{"text": "ca phe den nong | ca phe", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T15:20:31.174888+07:00"}
+{"text": "ca phe sua nong | ca phe", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T15:20:31.206259+07:00"}
+{"text": "americano | ca phe", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T15:20:31.211807+07:00"}
+{"text": "tra den da | tra", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T15:20:31.217318+07:00"}
+{"text": "tra sua | tra", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T15:20:31.244852+07:00"}
+{"text": "tra xanh da | tra", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T15:20:31.263693+07:00"}
+{"text": "nuoc ep cam | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T15:20:31.269683+07:00"}
+{"text": "nuoc ep dua hau | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T15:20:31.287300+07:00"}
+{"text": "sinh to bo | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T15:20:31.318605+07:00"}
+{"text": "sinh to dau tay | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T15:20:31.324058+07:00"}
+{"text": "sinh to xoai | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T15:20:31.331268+07:00"}
+{"text": "coca cola | nuoc ngot & nuoc co ga", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T15:20:31.348506+07:00"}
+{"text": "pepsi | nuoc ngot & nuoc co ga", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T15:20:31.354106+07:00"}
+{"text": "7up | nuoc ngot & nuoc co ga", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T15:20:31.358947+07:00"}
+{"text": "banh kem chocolate | banh ngot", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T15:20:31.359458+07:00"}
+{"text": "tiramisu | banh ngot", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T15:20:31.385809+07:00"}
+{"text": "banh mousse dau | banh ngot", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T15:20:31.418275+07:00"}
+{"text": "banh mi sandwich thit nguoi | banh man", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T15:20:31.447858+07:00"}
+{"text": "banh mi nuong bo toi | banh man", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T15:20:31.465119+07:00"}
+{"text": "pho bo | mon chinh", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T15:20:31.476426+07:00"}
+{"text": "tra thao moc | tra", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:21:13.131491+07:00"}
+{"text": "tra thao moc | tra", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:22:41.814436+07:00"}
+{"text": "tra thao moc | tra", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:24:17.748159+07:00"}
+{"text": "tra thao moc | tra", "label": null, "source": "UNKNOWN", "confidence": 0.5, "ts": "2026-01-07T15:28:51.807555+07:00"}
+{"text": "ca phe den da | ca phe", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T15:58:37.145733+07:00"}
+{"text": "ca phe sua da | ca phe", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T15:58:37.174173+07:00"}
+{"text": "ca phe den nong | ca phe", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T15:58:37.198787+07:00"}
+{"text": "ca phe sua nong | ca phe", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T15:58:37.212901+07:00"}
+{"text": "tra den da | tra", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T15:58:37.276253+07:00"}
+{"text": "tra sua | tra", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T15:58:37.291693+07:00"}
+{"text": "tra xanh da | tra", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T15:58:37.318612+07:00"}
+{"text": "nuoc ep cam | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T15:58:37.374832+07:00"}
+{"text": "nuoc ep dua hau | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T15:58:37.396531+07:00"}
+{"text": "sinh to bo | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T15:58:37.422908+07:00"}
+{"text": "sinh to dau tay | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T15:58:37.438112+07:00"}
+{"text": "sinh to xoai | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T15:58:37.456196+07:00"}
+{"text": "coca cola | nuoc ngot & nuoc co ga", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T15:58:37.478678+07:00"}
+{"text": "pepsi | nuoc ngot & nuoc co ga", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T15:58:37.493422+07:00"}
+{"text": "7up | nuoc ngot & nuoc co ga", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T15:58:37.508686+07:00"}
+{"text": "banh kem chocolate | banh ngot", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T15:58:37.541225+07:00"}
+{"text": "banh mi sandwich thit nguoi | banh man", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T15:58:37.656965+07:00"}
+{"text": "banh mi nuong bo toi | banh man", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T15:58:37.716685+07:00"}
+{"text": "pho bo | mon chinh", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T15:58:37.846409+07:00"}
+{"text": "ca phe den da | ca phe", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T15:59:06.822285+07:00"}
+{"text": "ca phe sua da | ca phe", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T15:59:06.846005+07:00"}
+{"text": "ca phe den nong | ca phe", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T15:59:06.885258+07:00"}
+{"text": "ca phe sua nong | ca phe", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T15:59:06.935361+07:00"}
+{"text": "tra den da | tra", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T15:59:07.105731+07:00"}
+{"text": "tra sua | tra", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T15:59:07.145784+07:00"}
+{"text": "tra xanh da | tra", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T15:59:07.175967+07:00"}
+{"text": "nuoc ep cam | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T15:59:07.240495+07:00"}
+{"text": "nuoc ep dua hau | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T15:59:07.294195+07:00"}
+{"text": "sinh to bo | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T15:59:07.322329+07:00"}
+{"text": "sinh to dau tay | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T15:59:07.349734+07:00"}
+{"text": "sinh to xoai | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T15:59:07.391579+07:00"}
+{"text": "coca cola | nuoc ngot & nuoc co ga", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T15:59:07.427382+07:00"}
+{"text": "pepsi | nuoc ngot & nuoc co ga", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T15:59:07.475309+07:00"}
+{"text": "7up | nuoc ngot & nuoc co ga", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T15:59:07.508149+07:00"}
+{"text": "banh kem chocolate | banh ngot", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T15:59:07.551764+07:00"}
+{"text": "banh mi sandwich thit nguoi | banh man", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T15:59:07.640261+07:00"}
+{"text": "banh mi nuong bo toi | banh man", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T15:59:07.662237+07:00"}
+{"text": "pho bo | mon chinh", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T15:59:07.854498+07:00"}
+{"text": "ca phe den da | ca phe", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:01:42.109254+07:00"}
+{"text": "ca phe sua da | ca phe", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:01:42.142249+07:00"}
+{"text": "ca phe den nong | ca phe", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T16:01:42.237802+07:00"}
+{"text": "ca phe sua nong | ca phe", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T16:01:42.267243+07:00"}
+{"text": "tra den da | tra", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:01:42.358926+07:00"}
+{"text": "tra sua | tra", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:01:42.401853+07:00"}
+{"text": "tra xanh da | tra", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:01:42.431237+07:00"}
+{"text": "nuoc ep cam | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:01:42.485379+07:00"}
+{"text": "nuoc ep dua hau | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:01:42.517552+07:00"}
+{"text": "sinh to bo | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:01:42.547041+07:00"}
+{"text": "sinh to dau tay | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:01:42.583683+07:00"}
+{"text": "sinh to xoai | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:01:42.620507+07:00"}
+{"text": "coca cola | nuoc ngot & nuoc co ga", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:01:42.647004+07:00"}
+{"text": "pepsi | nuoc ngot & nuoc co ga", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:01:42.684541+07:00"}
+{"text": "7up | nuoc ngot & nuoc co ga", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:01:42.730086+07:00"}
+{"text": "banh kem chocolate | banh ngot", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:01:42.766050+07:00"}
+{"text": "banh mi sandwich thit nguoi | banh man", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T16:01:42.866990+07:00"}
+{"text": "banh mi nuong bo toi | banh man", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T16:01:42.887125+07:00"}
+{"text": "pho bo | mon chinh", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T16:01:42.967661+07:00"}
+{"text": "ca phe den da | ca phe", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:04:48.456915+07:00"}
+{"text": "ca phe sua da | ca phe", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:04:48.468292+07:00"}
+{"text": "ca phe den nong | ca phe", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T16:04:48.477812+07:00"}
+{"text": "ca phe sua nong | ca phe", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T16:04:48.489273+07:00"}
+{"text": "tra den da | tra", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:04:48.553357+07:00"}
+{"text": "tra sua | tra", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:04:48.588719+07:00"}
+{"text": "tra xanh da | tra", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:04:48.621313+07:00"}
+{"text": "nuoc ep cam | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:04:48.642510+07:00"}
+{"text": "nuoc ep dua hau | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:04:48.675851+07:00"}
+{"text": "sinh to bo | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:04:48.710058+07:00"}
+{"text": "sinh to dau tay | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:04:48.745522+07:00"}
+{"text": "sinh to xoai | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:04:48.767756+07:00"}
+{"text": "coca cola | nuoc ngot & nuoc co ga", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:04:48.817011+07:00"}
+{"text": "pepsi | nuoc ngot & nuoc co ga", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:04:48.857196+07:00"}
+{"text": "7up | nuoc ngot & nuoc co ga", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:04:48.886875+07:00"}
+{"text": "banh kem chocolate | banh ngot", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:04:48.911108+07:00"}
+{"text": "banh mi sandwich thit nguoi | banh man", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T16:04:49.022708+07:00"}
+{"text": "banh mi nuong bo toi | banh man", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T16:04:49.066993+07:00"}
+{"text": "pho bo | mon chinh", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T16:04:49.197573+07:00"}
+{"text": "ca phe den da | ca phe", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:06:04.682574+07:00"}
+{"text": "ca phe den da | ca phe", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:06:05.382932+07:00"}
+{"text": "ca phe sua da | ca phe", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:06:05.414918+07:00"}
+{"text": "ca phe den nong | ca phe", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T16:06:05.436161+07:00"}
+{"text": "ca phe sua nong | ca phe", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T16:06:05.450530+07:00"}
+{"text": "tra den da | tra", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:06:05.591547+07:00"}
+{"text": "tra sua | tra", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:06:05.603995+07:00"}
+{"text": "tra xanh da | tra", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:06:05.636111+07:00"}
+{"text": "nuoc ep cam | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:06:05.655139+07:00"}
+{"text": "nuoc ep dua hau | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:06:05.665754+07:00"}
+{"text": "sinh to bo | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:06:05.699892+07:00"}
+{"text": "sinh to dau tay | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:06:05.756692+07:00"}
+{"text": "sinh to xoai | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:06:05.778081+07:00"}
+{"text": "coca cola | nuoc ngot & nuoc co ga", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:06:05.801235+07:00"}
+{"text": "pepsi | nuoc ngot & nuoc co ga", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:06:05.854258+07:00"}
+{"text": "7up | nuoc ngot & nuoc co ga", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:06:05.891565+07:00"}
+{"text": "banh kem chocolate | banh ngot", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:06:05.923571+07:00"}
+{"text": "banh mi sandwich thit nguoi | banh man", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T16:06:06.029396+07:00"}
+{"text": "banh mi nuong bo toi | banh man", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T16:06:06.077089+07:00"}
+{"text": "pho bo | mon chinh", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T16:06:06.199436+07:00"}
+{"text": "ca phe den da | ca phe", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:06:06.314552+07:00"}
+{"text": "ca phe sua da | ca phe", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:06:06.345416+07:00"}
+{"text": "ca phe den nong | ca phe", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T16:06:06.373483+07:00"}
+{"text": "ca phe sua nong | ca phe", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T16:06:06.403736+07:00"}
+{"text": "americano | ca phe", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T16:06:06.427367+07:00"}
+{"text": "tra den da | tra", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:06:06.437423+07:00"}
+{"text": "tra sua | tra", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:06:06.449748+07:00"}
+{"text": "tra xanh da | tra", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:06:06.476339+07:00"}
+{"text": "nuoc ep cam | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:06:06.490407+07:00"}
+{"text": "nuoc ep dua hau | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:06:06.511934+07:00"}
+{"text": "sinh to bo | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:06:06.533811+07:00"}
+{"text": "sinh to dau tay | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:06:06.557971+07:00"}
+{"text": "sinh to xoai | nuoc ep & sinh to", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:06:06.571636+07:00"}
+{"text": "coca cola | nuoc ngot & nuoc co ga", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:06:06.600025+07:00"}
+{"text": "pepsi | nuoc ngot & nuoc co ga", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:06:06.691417+07:00"}
+{"text": "7up | nuoc ngot & nuoc co ga", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:06:06.723512+07:00"}
+{"text": "banh kem chocolate | banh ngot", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:06:06.732991+07:00"}
+{"text": "tiramisu | banh ngot", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T16:06:06.737997+07:00"}
+{"text": "banh mousse dau | banh ngot", "label": "COLD", "source": "RULE", "confidence": 0.95, "ts": "2026-01-07T16:06:06.743958+07:00"}
+{"text": "banh mi sandwich thit nguoi | banh man", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T16:06:06.771214+07:00"}
+{"text": "banh mi nuong bo toi | banh man", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T16:06:06.776320+07:00"}
+{"text": "pho bo | mon chinh", "label": "HOT", "source": "RULE", "confidence": 0.9, "ts": "2026-01-07T16:06:06.783880+07:00"}
