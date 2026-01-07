@@ -1,4 +1,4 @@
-# Hướng Dẫn Tích Hợp AI Thực Sự cho Phân Loại Nhiệt Độ
+
 
 ## 📊 So Sánh: Rule-Based vs AI
 
