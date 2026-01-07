@@ -1,0 +1,7 @@
+{
+    "intelephense.environment.includePaths": [
+        "${workspaceFolder}/Backend/vendor",
+        "${workspaceFolder}/Backend/vendor/doctrine/dbal/src",
+        "${workspaceFolder}/Backend/vendor/doctrine/common/src"
+    ]
+}

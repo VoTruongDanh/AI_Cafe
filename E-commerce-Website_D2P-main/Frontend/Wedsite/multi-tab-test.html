@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Tab WebSocket Test</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 20px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        h1 {
+            color: #e63946;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+            font-weight: bold;
+        }
+        .status.connected {
+            background: #d4edda;
+            color: #155724;
+        }
+        .status.disconnected {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .log {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+        .log-entry {
+            margin-bottom: 8px;
+            padding: 4px;
+            border-left: 3px solid #e63946;
+            padding-left: 8px;
+        }
+        button {
+            background: #e63946;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        button:hover {
+            background: #d62839;
+        }
+        .product-info {
+            background: #e3f2fd;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .tab-info {
+            background: #fff3e0;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔄 Multi-Tab WebSocket Test</h1>
+        
+        <div class="tab-info">
+            <strong>Tab ID:</strong> <span id="tab-id"></span><br>
+            <strong>Opened at:</strong> <span id="opened-time"></span>
+        </div>
+
+        <div id="status" class="status disconnected">
+            ❌ Disconnected
+        </div>
+
+        <div>
+            <button onclick="connect()">Connect</button>
+            <button onclick="disconnect()">Disconnect</button>
+            <button onclick="clearLog()">Clear Log</button>
+            <button onclick="testLaptopUpdate()">Test Laptop Update</button>
+            <button onclick="openNewTab()">Open New Tab</button>
+        </div>
+
+        <div class="product-info">
+            <h3>💻 MacBook Air M2 Info</h3>
+            <div id="laptop-info">Loading...</div>
+        </div>
+
+        <h3>📋 WebSocket Event Log:</h3>
+        <div id="log" class="log">
+            <div class="log-entry">Waiting for connection...</div>
+        </div>
+    </div>
+
+    <script src="https://js.pusher.com/8.2.0/pusher.min.js"></script>
+    <script>
+        let pusher = null;
+        let channel = null;
+        
+        // Generate unique tab ID
+        const tabId = 'Tab-' + Math.random().toString(36).substr(2, 9);
+        document.getElementById('tab-id').textContent = tabId;
+        document.getElementById('opened-time').textContent = new Date().toLocaleTimeString();
+
+        function addLog(message, type = 'info') {
+            const log = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            const timestamp = new Date().toLocaleTimeString();
+            entry.innerHTML = `<strong>[${timestamp}] [${tabId}]</strong> ${message}`;
+            log.appendChild(entry);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function updateStatus(connected) {
+            const status = document.getElementById('status');
+            if (connected) {
+                status.className = 'status connected';
+                status.textContent = `✅ Connected (${tabId})`;
+            } else {
+                status.className = 'status disconnected';
+                status.textContent = `❌ Disconnected (${tabId})`;
+            }
+        }
+
+        function connect() {
+            addLog('🔄 Connecting to Pusher WebSocket...', 'info');
+
+            pusher = new Pusher('eabeef840c5056692d72', {
+                cluster: 'ap1',
+                forceTLS: true,
+                encrypted: true,
+                disableStats: true,
+            });
+
+            pusher.connection.bind('connected', () => {
+                addLog('✅ Pusher WebSocket connected!', 'success');
+                updateStatus(true);
+                loadLaptopInfo();
+            });
+
+            pusher.connection.bind('disconnected', () => {
+                addLog('❌ Pusher WebSocket disconnected', 'error');
+                updateStatus(false);
+            });
+
+            pusher.connection.bind('error', (err) => {
+                addLog(`❌ Connection error: ${JSON.stringify(err)}`, 'error');
+            });
+
+            // Subscribe to products channel
+            channel = pusher.subscribe('products');
+
+            channel.bind('pusher:subscription_succeeded', () => {
+                addLog('📡 Subscribed to "products" channel', 'success');
+            });
+
+            channel.bind('pusher:subscription_error', (err) => {
+                addLog(`❌ Subscription error: ${JSON.stringify(err)}`, 'error');
+            });
+
+            // Listen to product events
+            channel.bind('product.updated', (data) => {
+                addLog(`📦 [Product Updated] ID: ${data.product.id}, Quantity: ${data.product.quantity}`, 'event');
+                if (data.product.name.includes('MacBook Air M2')) {
+                    updateLaptopInfo(data.product);
+                }
+            });
+        }
+
+        function disconnect() {
+            if (pusher) {
+                pusher.disconnect();
+                addLog('🔌 Disconnected from Pusher', 'info');
+                updateStatus(false);
+            }
+        }
+
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+            addLog('Log cleared', 'info');
+        }
+
+        async function loadLaptopInfo() {
+            try {
+                const response = await fetch('http://localhost:8000/api/products?search=MacBook Air M2');
+                const data = await response.json();
+                const laptop = data.data.find(p => p.name.includes('MacBook Air M2'));
+                if (laptop) {
+                    updateLaptopInfo(laptop);
+                } else {
+                    document.getElementById('laptop-info').innerHTML = 'MacBook Air M2 not found';
+                }
+            } catch (error) {
+                document.getElementById('laptop-info').innerHTML = 'Error loading laptop info';
+                addLog(`❌ Error loading laptop: ${error.message}`, 'error');
+            }
+        }
+
+        function updateLaptopInfo(product) {
+            const info = document.getElementById('laptop-info');
+            const stockStatus = product.quantity === 0 ? '❌ Hết hàng' : 
+                               product.quantity < 5 ? `⚠️ Chỉ còn ${product.quantity} sản phẩm` : 
+                               `✅ Còn ${product.quantity} sản phẩm`;
+            
+            info.innerHTML = `
+                <strong>ID:</strong> ${product.id}<br>
+                <strong>Name:</strong> ${product.name}<br>
+                <strong>Quantity:</strong> ${product.quantity}<br>
+                <strong>Status:</strong> ${stockStatus}<br>
+                <strong>Updated:</strong> ${new Date(product.updated_at).toLocaleString()}<br>
+                <strong>Last Update in Tab:</strong> ${new Date().toLocaleTimeString()}
+            `;
+            
+            // Flash effect to show update
+            info.style.backgroundColor = '#ffeb3b';
+            setTimeout(() => {
+                info.style.backgroundColor = '#e3f2fd';
+            }, 1000);
+        }
+
+        function testLaptopUpdate() {
+            addLog('🧪 Triggering MacBook Air M2 update test...', 'info');
+            // This will call the backend script
+            fetch('http://localhost:8000/api/test-laptop-update', { 
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ tabId: tabId })
+            })
+            .then(() => addLog('✅ Laptop update test triggered', 'success'))
+            .catch(err => addLog(`❌ Test failed: ${err.message}`, 'error'));
+        }
+
+        function openNewTab() {
+            window.open(window.location.href, '_blank');
+            addLog('🆕 Opened new tab for testing', 'info');
+        }
+
+        // Auto-connect on load
+        window.onload = () => {
+            addLog(`Page loaded in ${tabId}. Connecting automatically...`, 'info');
+            connect();
+        };
+
+        // Listen for visibility changes (tab switching)
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                addLog('👁️ Tab became hidden', 'info');
+            } else {
+                addLog('👁️ Tab became visible', 'info');
+            }
+        });
+    </script>
+</body>
+</html>

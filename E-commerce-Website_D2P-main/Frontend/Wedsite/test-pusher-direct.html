@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Direct Pusher Test</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #e63946;
+        }
+        .status {
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+        .status.connected {
+            background: #d4edda;
+            color: #155724;
+        }
+        .status.disconnected {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .status.connecting {
+            background: #fff3cd;
+            color: #856404;
+        }
+        .log {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+        .log-entry {
+            margin-bottom: 10px;
+            padding: 5px;
+            border-left: 3px solid #e63946;
+            padding-left: 10px;
+        }
+        .log-entry.success {
+            border-left-color: #4caf50;
+        }
+        .log-entry.error {
+            border-left-color: #f44336;
+            background: #ffebee;
+        }
+        button {
+            background: #e63946;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-right: 10px;
+            margin-top: 10px;
+        }
+        button:hover {
+            background: #d62839;
+        }
+        .info-box {
+            background: #e3f2fd;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 15px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔌 Direct Pusher Connection Test</h1>
+        
+        <div class="info-box">
+            <strong>Pusher Credentials:</strong><br>
+            App Key: eabeef840c5056692d72<br>
+            Cluster: ap1<br>
+            TLS: Enabled
+        </div>
+
+        <div id="status" class="status disconnected">
+            ❌ Not Connected
+        </div>
+
+        <div>
+            <button onclick="testConnection()">Test Connection</button>
+            <button onclick="clearLog()">Clear Log</button>
+        </div>
+
+        <h3 style="margin-top: 30px;">📋 Connection Log:</h3>
+        <div id="log" class="log">
+            <div class="log-entry">Click "Test Connection" to start...</div>
+        </div>
+    </div>
+
+    <script src="https://js.pusher.com/8.2.0/pusher.min.js"></script>
+    <script>
+        let pusher = null;
+
+        function addLog(message, type = 'info') {
+            const log = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry ' + type;
+            const timestamp = new Date().toLocaleTimeString();
+            entry.innerHTML = `<strong>[${timestamp}]</strong> ${message}`;
+            log.appendChild(entry);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function updateStatus(status, message) {
+            const statusEl = document.getElementById('status');
+            statusEl.className = 'status ' + status;
+            statusEl.textContent = message;
+        }
+
+        function testConnection() {
+            addLog('🔄 Starting connection test...', 'info');
+            updateStatus('connecting', '⏳ Connecting...');
+
+            // Enable Pusher logging for debugging
+            Pusher.logToConsole = true;
+
+            try {
+                pusher = new Pusher('eabeef840c5056692d72', {
+                    cluster: 'ap1',
+                    forceTLS: true,
+                    encrypted: true,
+                    disableStats: true,
+                    enabledTransports: ['ws', 'wss'],
+                });
+
+                addLog('✅ Pusher instance created', 'success');
+
+                // Connection state events
+                pusher.connection.bind('connecting', () => {
+                    addLog('🔄 Connecting to Pusher...', 'info');
+                    updateStatus('connecting', '⏳ Connecting...');
+                });
+
+                pusher.connection.bind('connected', () => {
+                    addLog('✅ Successfully connected to Pusher!', 'success');
+                    updateStatus('connected', '✅ Connected');
+                    
+                    // Get connection info
+                    const socketId = pusher.connection.socket_id;
+                    addLog(`📡 Socket ID: ${socketId}`, 'success');
+                    
+                    // Subscribe to test channel
+                    subscribeToChannel();
+                });
+
+                pusher.connection.bind('unavailable', () => {
+                    addLog('❌ Connection unavailable', 'error');
+                    updateStatus('disconnected', '❌ Unavailable');
+                });
+
+                pusher.connection.bind('failed', () => {
+                    addLog('❌ Connection failed', 'error');
+                    updateStatus('disconnected', '❌ Failed');
+                });
+
+                pusher.connection.bind('disconnected', () => {
+                    addLog('❌ Disconnected from Pusher', 'error');
+                    updateStatus('disconnected', '❌ Disconnected');
+                });
+
+                pusher.connection.bind('error', (err) => {
+                    addLog(`❌ Connection error: ${JSON.stringify(err)}`, 'error');
+                    console.error('Pusher error:', err);
+                });
+
+                // State change
+                pusher.connection.bind('state_change', (states) => {
+                    addLog(`🔄 State changed: ${states.previous} → ${states.current}`, 'info');
+                });
+
+            } catch (error) {
+                addLog(`❌ Exception: ${error.message}`, 'error');
+                console.error('Exception:', error);
+                updateStatus('disconnected', '❌ Error');
+            }
+        }
+
+        function subscribeToChannel() {
+            addLog('📡 Subscribing to "products" channel...', 'info');
+            
+            const channel = pusher.subscribe('products');
+
+            channel.bind('pusher:subscription_succeeded', () => {
+                addLog('✅ Successfully subscribed to "products" channel', 'success');
+            });
+
+            channel.bind('pusher:subscription_error', (err) => {
+                addLog(`❌ Subscription error: ${JSON.stringify(err)}`, 'error');
+            });
+
+            // Listen for product updates
+            channel.bind('product.updated', (data) => {
+                addLog(`📦 Received product.updated event!`, 'success');
+                addLog(`   Product ID: ${data.product?.id}`, 'success');
+                addLog(`   Product Name: ${data.product?.name}`, 'success');
+                addLog(`   Quantity: ${data.product?.quantity}`, 'success');
+            });
+
+            addLog('👂 Listening for product.updated events...', 'info');
+        }
+
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+            addLog('Log cleared', 'info');
+        }
+
+        // Auto-test on load
+        window.onload = () => {
+            addLog('Page loaded. Click "Test Connection" to start.', 'info');
+        };
+    </script>
+</body>
+</html>

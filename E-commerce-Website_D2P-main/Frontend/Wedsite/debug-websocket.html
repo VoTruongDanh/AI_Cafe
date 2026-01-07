@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug WebSocket - ElectroShop</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1000px;
+            margin: 20px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        h1, h2 {
+            color: #e63946;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+            font-weight: bold;
+        }
+        .status.connected {
+            background: #d4edda;
+            color: #155724;
+        }
+        .status.disconnected {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .log {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            margin-bottom: 10px;
+        }
+        .log-entry {
+            margin-bottom: 8px;
+            padding: 4px;
+            border-left: 3px solid #e63946;
+            padding-left: 8px;
+        }
+        button {
+            background: #e63946;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        button:hover {
+            background: #d62839;
+        }
+        .product-info {
+            background: #e3f2fd;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔌 WebSocket Debug - ElectroShop</h1>
+        
+        <div id="status" class="status disconnected">
+            ❌ Disconnected
+        </div>
+
+        <div>
+            <button onclick="connect()">Connect</button>
+            <button onclick="disconnect()">Disconnect</button>
+            <button onclick="clearLog()">Clear Log</button>
+            <button onclick="testAirPodsUpdate()">Test AirPods Update</button>
+            <button onclick="testCreateOrder()">Test Create Order</button>
+        </div>
+
+        <div class="product-info">
+            <h3>🎧 AirPods Product Info</h3>
+            <div id="airpods-info">Loading...</div>
+        </div>
+
+        <h3>📋 WebSocket Event Log:</h3>
+        <div id="log" class="log">
+            <div class="log-entry">Waiting for connection...</div>
+        </div>
+    </div>
+
+    <script src="https://js.pusher.com/8.2.0/pusher.min.js"></script>
+    <script>
+        let pusher = null;
+        let channel = null;
+
+        function addLog(message, type = 'info') {
+            const log = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            const timestamp = new Date().toLocaleTimeString();
+            entry.innerHTML = `<strong>[${timestamp}]</strong> ${message}`;
+            log.appendChild(entry);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function updateStatus(connected) {
+            const status = document.getElementById('status');
+            if (connected) {
+                status.className = 'status connected';
+                status.textContent = '✅ Connected to Pusher';
+            } else {
+                status.className = 'status disconnected';
+                status.textContent = '❌ Disconnected';
+            }
+        }
+
+        function connect() {
+            addLog('🔄 Connecting to Pusher WebSocket...', 'info');
+
+            pusher = new Pusher('eabeef840c5056692d72', {
+                cluster: 'ap1',
+                forceTLS: true,
+                encrypted: true,
+                disableStats: true,
+            });
+
+            pusher.connection.bind('connected', () => {
+                addLog('✅ Pusher WebSocket connected!', 'success');
+                updateStatus(true);
+                loadAirPodsInfo();
+            });
+
+            pusher.connection.bind('disconnected', () => {
+                addLog('❌ Pusher WebSocket disconnected', 'error');
+                updateStatus(false);
+            });
+
+            pusher.connection.bind('error', (err) => {
+                addLog(`❌ Connection error: ${JSON.stringify(err)}`, 'error');
+            });
+
+            // Subscribe to products channel
+            channel = pusher.subscribe('products');
+
+            channel.bind('pusher:subscription_succeeded', () => {
+                addLog('📡 Subscribed to "products" channel', 'success');
+            });
+
+            channel.bind('pusher:subscription_error', (err) => {
+                addLog(`❌ Subscription error: ${JSON.stringify(err)}`, 'error');
+            });
+
+            // Listen to product events
+            channel.bind('product.updated', (data) => {
+                addLog(`📦 [Product Updated] ID: ${data.product.id}, Name: ${data.product.name}, Quantity: ${data.product.quantity}`, 'event');
+                if (data.product.name.includes('AirPods')) {
+                    updateAirPodsInfo(data.product);
+                }
+            });
+
+            channel.bind('product.created', (data) => {
+                addLog(`✨ [Product Created] ${data.product.name}`, 'event');
+            });
+
+            channel.bind('product.deleted', (data) => {
+                addLog(`🗑️ [Product Deleted] ID: ${data.productId}`, 'event');
+            });
+
+            // Subscribe to orders channel
+            const ordersChannel = pusher.subscribe('orders');
+            ordersChannel.bind('order.created', (data) => {
+                addLog(`📋 [Order Created] ${data.order.code}`, 'event');
+            });
+        }
+
+        function disconnect() {
+            if (pusher) {
+                pusher.disconnect();
+                addLog('🔌 Disconnected from Pusher', 'info');
+                updateStatus(false);
+            }
+        }
+
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+            addLog('Log cleared', 'info');
+        }
+
+        async function loadAirPodsInfo() {
+            try {
+                const response = await fetch('http://localhost:8000/api/products?search=AirPods');
+                const data = await response.json();
+                const airpods = data.data.find(p => p.name.includes('AirPods'));
+                if (airpods) {
+                    updateAirPodsInfo(airpods);
+                } else {
+                    document.getElementById('airpods-info').innerHTML = 'AirPods not found';
+                }
+            } catch (error) {
+                document.getElementById('airpods-info').innerHTML = 'Error loading AirPods info';
+                addLog(`❌ Error loading AirPods: ${error.message}`, 'error');
+            }
+        }
+
+        function updateAirPodsInfo(product) {
+            const info = document.getElementById('airpods-info');
+            const stockStatus = product.quantity === 0 ? '❌ Hết hàng' : 
+                               product.quantity < 5 ? `⚠️ Chỉ còn ${product.quantity} sản phẩm` : 
+                               '✅ Còn hàng';
+            
+            info.innerHTML = `
+                <strong>ID:</strong> ${product.id}<br>
+                <strong>Name:</strong> ${product.name}<br>
+                <strong>Quantity:</strong> ${product.quantity}<br>
+                <strong>Status:</strong> ${stockStatus}<br>
+                <strong>Updated:</strong> ${new Date(product.updated_at).toLocaleString()}
+            `;
+        }
+
+        function testAirPodsUpdate() {
+            addLog('🧪 Triggering AirPods update test...', 'info');
+            fetch('http://localhost:8000/test-airpods-update', { method: 'POST' })
+                .then(() => addLog('✅ AirPods update test triggered', 'success'))
+                .catch(err => addLog(`❌ Test failed: ${err.message}`, 'error'));
+        }
+
+        function testCreateOrder() {
+            addLog('🧪 Triggering order creation test...', 'info');
+            fetch('http://localhost:8000/test-create-order', { method: 'POST' })
+                .then(() => addLog('✅ Order creation test triggered', 'success'))
+                .catch(err => addLog(`❌ Test failed: ${err.message}`, 'error'));
+        }
+
+        // Auto-connect on load
+        window.onload = () => {
+            addLog('Page loaded. Connecting automatically...', 'info');
+            connect();
+        };
+    </script>
+</body>
+</html>

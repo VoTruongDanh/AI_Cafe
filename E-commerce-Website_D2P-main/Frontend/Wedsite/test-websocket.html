@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Test - ElectroShop</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #e63946;
+            margin-bottom: 30px;
+        }
+        .status {
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+        .status.connected {
+            background: #d4edda;
+            color: #155724;
+        }
+        .status.disconnected {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .log {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+        .log-entry {
+            margin-bottom: 10px;
+            padding: 5px;
+            border-left: 3px solid #e63946;
+            padding-left: 10px;
+        }
+        button {
+            background: #e63946;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-right: 10px;
+            margin-top: 10px;
+        }
+        button:hover {
+            background: #d62839;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔌 WebSocket Connection Test</h1>
+        
+        <div id="status" class="status disconnected">
+            ❌ Disconnected
+        </div>
+
+        <div>
+            <button onclick="connect()">Connect</button>
+            <button onclick="disconnect()">Disconnect</button>
+            <button onclick="clearLog()">Clear Log</button>
+            <button onclick="testBroadcast()">Test Broadcast</button>
+        </div>
+
+        <h3 style="margin-top: 30px;">📋 Event Log:</h3>
+        <div id="log" class="log">
+            <div class="log-entry">Waiting for connection...</div>
+        </div>
+    </div>
+
+    <script src="https://js.pusher.com/8.2.0/pusher.min.js"></script>
+    <script>
+        let pusher = null;
+        let channel = null;
+
+        function addLog(message, type = 'info') {
+            const log = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            const timestamp = new Date().toLocaleTimeString();
+            entry.innerHTML = `<strong>[${timestamp}]</strong> ${message}`;
+            log.appendChild(entry);
+            log.scrollTop = log.scrollHeight;
+        }
+
+        function updateStatus(connected) {
+            const status = document.getElementById('status');
+            if (connected) {
+                status.className = 'status connected';
+                status.textContent = '✅ Connected';
+            } else {
+                status.className = 'status disconnected';
+                status.textContent = '❌ Disconnected';
+            }
+        }
+
+        function connect() {
+            addLog('🔄 Connecting to WebSocket...', 'info');
+
+            pusher = new Pusher('eabeef840c5056692d72', {
+                cluster: 'ap1',
+                wsHost: 'localhost',
+                wsPort: 8080,
+                forceTLS: false,
+                disableStats: true,
+                enabledTransports: ['ws', 'wss'],
+            });
+
+            pusher.connection.bind('connected', () => {
+                addLog('✅ WebSocket connected!', 'success');
+                updateStatus(true);
+            });
+
+            pusher.connection.bind('disconnected', () => {
+                addLog('❌ WebSocket disconnected', 'error');
+                updateStatus(false);
+            });
+
+            pusher.connection.bind('error', (err) => {
+                addLog(`❌ Connection error: ${JSON.stringify(err)}`, 'error');
+            });
+
+            // Subscribe to products channel
+            channel = pusher.subscribe('products');
+
+            channel.bind('pusher:subscription_succeeded', () => {
+                addLog('📡 Subscribed to "products" channel', 'success');
+            });
+
+            channel.bind('pusher:subscription_error', (err) => {
+                addLog(`❌ Subscription error: ${JSON.stringify(err)}`, 'error');
+            });
+
+            // Listen to product events
+            channel.bind('product.updated', (data) => {
+                addLog(`📦 Product Updated: ${JSON.stringify(data, null, 2)}`, 'event');
+            });
+
+            channel.bind('product.created', (data) => {
+                addLog(`✨ Product Created: ${JSON.stringify(data, null, 2)}`, 'event');
+            });
+
+            channel.bind('product.deleted', (data) => {
+                addLog(`🗑️ Product Deleted: ${JSON.stringify(data, null, 2)}`, 'event');
+            });
+        }
+
+        function disconnect() {
+            if (pusher) {
+                pusher.disconnect();
+                addLog('🔌 Disconnected from WebSocket', 'info');
+                updateStatus(false);
+            }
+        }
+
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+            addLog('Log cleared', 'info');
+        }
+
+        function testBroadcast() {
+            addLog('🧪 Testing broadcast... (Run: php artisan tinker)', 'info');
+            addLog('Then execute: event(new App\\Events\\ProductUpdated(App\\Models\\Product::first()));', 'info');
+        }
+
+        // Auto-connect on load
+        window.onload = () => {
+            addLog('Page loaded. Click "Connect" to start.', 'info');
+        };
+    </script>
+</body>
+</html>

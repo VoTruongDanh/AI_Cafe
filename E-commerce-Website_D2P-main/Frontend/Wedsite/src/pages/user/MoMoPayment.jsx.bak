@@ -1,0 +1,408 @@
+import { useState, useEffect } from 'react'
+import { useParams, useNavigate } from 'react-router-dom'
+import {
+  Container,
+  Card,
+  CardContent,
+  Typography,
+  Box,
+  Button,
+  TextField,
+  Divider,
+  Paper,
+  CircularProgress,
+  Alert,
+  Chip,
+} from '@mui/material'
+import {
+  CheckCircle,
+  ContentCopy,
+  QrCode2,
+  Phone,
+} from '@mui/icons-material'
+import { ordersApi } from '../../services/api'
+import { formatCurrency, getImageUrl } from '../../services/utils'
+import { toast } from 'react-toastify'
+import { motion } from 'framer-motion'
+
+const MoMoPayment = () => {
+  const { orderId } = useParams()
+  const navigate = useNavigate()
+  
+  const [paymentData, setPaymentData] = useState(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [isConfirming, setIsConfirming] = useState(false)
+  const [transferNote, setTransferNote] = useState('')
+  const [confirmed, setConfirmed] = useState(false)
+
+  useEffect(() => {
+    const loadPaymentData = async () => {
+      try {
+        setIsLoading(true)
+        const response = await ordersApi.getMoMoQRCode(orderId)
+        setPaymentData(response.data)
+      } catch (error) {
+        toast.error('Không thể tải thông tin thanh toán')
+        console.error(error)
+      } finally {
+        setIsLoading(false)
+      }
+    }
+    
+    loadPaymentData()
+  }, [orderId])
+
+  const handleCopyToClipboard = (text) => {
+    navigator.clipboard.writeText(text)
+    toast.success('Đã sao chép!')
+  }
+
+  const handleConfirmTransfer = async () => {
+    try {
+      setIsConfirming(true)
+      await ordersApi.confirmTransfer(orderId, {
+        transfer_note: transferNote
+      })
+      setConfirmed(true)
+      toast.success('Đã xác nhận thanh toán thành công!')
+      
+      // Redirect sau 3 giây
+      setTimeout(() => {
+        navigate('/orders')
+      }, 3000)
+    } catch (error) {
+      toast.error('Có lỗi xảy ra, vui lòng thử lại')
+      console.error(error)
+    } finally {
+      setIsConfirming(false)
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <Container maxWidth="md" sx={{ py: 5, textAlign: 'center' }}>
+        <CircularProgress />
+        <Typography sx={{ mt: 2 }}>Đang tải thông tin thanh toán...</Typography>
+      </Container>
+    )
+  }
+
+  if (!paymentData) {
+    return (
+      <Container maxWidth="md" sx={{ py: 5 }}>
+        <Alert severity="error">Không tìm thấy thông tin thanh toán</Alert>
+      </Container>
+    )
+  }
+
+  if (confirmed) {
+    return (
+      <Container maxWidth="md" sx={{ py: 5 }}>
+        <motion.div
+          initial={{ scale: 0.8, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ duration: 0.5 }}
+        >
+          <Paper sx={{ p: 4, textAlign: 'center', bgcolor: 'success.light' }}>
+            <CheckCircle sx={{ fontSize: 80, color: 'success.main', mb: 2 }} />
+            <Typography variant="h5" fontWeight="bold" gutterBottom>
+              Xác nhận thành công!
+            </Typography>
+            <Typography color="text.secondary" sx={{ mb: 2 }}>
+              Chúng tôi đã nhận được xác nhận thanh toán của bạn.
+              <br />
+              Đơn hàng sẽ được xử lý trong thời gian sớm nhất.
+            </Typography>
+            <Button
+              variant="contained"
+              onClick={() => navigate('/orders')}
+              sx={{ mt: 2 }}
+            >
+              Xem đơn hàng
+            </Button>
+          </Paper>
+        </motion.div>
+      </Container>
+    )
+  }
+
+  return (
+    <Container maxWidth="md" sx={{ py: 4 }}>
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+      >
+        <Card sx={{ boxShadow: 3 }}>
+          <CardContent sx={{ p: 4 }}>
+            {/* Header */}
+            <Box sx={{ textAlign: 'center', mb: 4 }}>
+              <Box sx={{ 
+                display: 'inline-block', 
+                bgcolor: '#d82d8b', 
+                borderRadius: '50%', 
+                p: 2, 
+                mb: 1 
+              }}>
+                <QrCode2 sx={{ fontSize: 40, color: 'white' }} />
+              </Box>
+              <Typography variant="h4" fontWeight="bold" gutterBottom>
+                Thanh toán MoMo
+              </Typography>
+              <Chip
+                label={`Mã đơn: ${paymentData.order_code}`}
+                sx={{ 
+                  fontWeight: 'bold', 
+                  fontSize: '1rem', 
+                  px: 2, 
+                  py: 2.5,
+                  bgcolor: '#d82d8b',
+                  color: 'white'
+                }}
+              />
+            </Box>
+
+            <Divider sx={{ my: 3 }} />
+
+            {/* QR Code */}
+            <Box sx={{ textAlign: 'center', mb: 4 }}>
+              <Typography variant="h6" fontWeight="bold" gutterBottom>
+                Quét mã QR bằng ứng dụng MoMo
+              </Typography>
+              {paymentData.qr_code_url ? (
+                <Paper
+                  elevation={3}
+                  sx={{
+                    display: 'inline-block',
+                    p: 2,
+                    bgcolor: 'white',
+                    borderRadius: 2,
+                  }}
+                >
+                  <img
+                    src={paymentData.qr_code_url}
+                    alt="MoMo QR Code"
+                    style={{ width: 300, height: 300, display: 'block' }}
+                    onError={(e) => {
+                      console.error('QR Code load error:', paymentData.qr_code_url)
+                      e.target.style.display = 'none'
+                      e.target.parentElement.innerHTML = '<div style="width:300px;height:300px;display:flex;align-items:center;justify-content:center;background:#f5f5f5;border:2px dashed #ccc;">Không thể tải QR Code</div>'
+                    }}
+                  />
+                </Paper>
+              ) : (
+                <Alert severity="warning" sx={{ mt: 2 }}>
+                  Không thể tạo mã QR. Vui lòng chuyển khoản thủ công theo thông tin bên dưới.
+                </Alert>
+              )}
+              <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                Mở app MoMo và quét mã QR để thanh toán
+              </Typography>
+            </Box>
+
+            <Divider sx={{ my: 3 }} />
+
+            {/* Danh sách sản phẩm */}
+            {paymentData.order_items && paymentData.order_items.length > 0 && (
+              <>
+                <Box sx={{ mb: 3 }}>
+                  <Typography variant="h6" fontWeight="bold" gutterBottom>
+                    Sản phẩm trong đơn hàng
+                  </Typography>
+                  <Paper sx={{ p: 2, bgcolor: 'grey.50' }}>
+                    {paymentData.order_items.map((item, index) => (
+                      <Box
+                        key={item.id || index}
+                        sx={{
+                          display: 'flex',
+                          gap: 2,
+                          mb: 2,
+                          pb: index < paymentData.order_items.length - 1 ? 2 : 0,
+                          borderBottom: index < paymentData.order_items.length - 1 ? '1px solid #e0e0e0' : 'none',
+                        }}
+                      >
+                        <Box
+                          component="img"
+                          src={getImageUrl(
+                            item.product?.thumbnail ||
+                            item.product?.images?.[0]?.path ||
+                            item.product?.image_url
+                          )}
+                          alt={item.product?.name || item.product_name}
+                          onError={(e) => {
+                            e.target.src = 'https://via.placeholder.com/60x60?text=No+Image'
+                          }}
+                          sx={{
+                            width: 60,
+                            height: 60,
+                            objectFit: 'cover',
+                            borderRadius: 1,
+                            border: '1px solid #e0e0e0',
+                          }}
+                        />
+                        <Box sx={{ flex: 1 }}>
+                          <Typography variant="body2" fontWeight="500">
+                            {item.product?.name || item.product_name}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            SL: {item.quantity} × {formatCurrency(item.unit_price || item.price)}
+                          </Typography>
+                        </Box>
+                        <Typography variant="body2" fontWeight="bold" color="primary">
+                          {formatCurrency((item.unit_price || item.price) * item.quantity)}
+                        </Typography>
+                      </Box>
+                    ))}
+                  </Paper>
+                </Box>
+                <Divider sx={{ my: 3 }} />
+              </>
+            )}
+
+            {/* Thông tin thanh toán */}
+            <Box sx={{ mb: 3 }}>
+              <Typography variant="h6" fontWeight="bold" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Phone sx={{ color: '#d82d8b' }} /> Thông tin thanh toán MoMo
+              </Typography>
+
+              {/* Số điện thoại MoMo */}
+              <Paper sx={{ p: 2, mb: 2, bgcolor: 'grey.50' }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                  <Typography variant="body2" color="text.secondary">Phương thức:</Typography>
+                  <Typography variant="body1" fontWeight="bold">
+                    {paymentData.momo_info.payment_method}
+                  </Typography>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                  <Typography variant="body2" color="text.secondary">Số điện thoại:</Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Typography variant="body1" fontWeight="bold">
+                      {paymentData.momo_info.phone_number}
+                    </Typography>
+                    <Button
+                      size="small"
+                      startIcon={<ContentCopy />}
+                      onClick={() => handleCopyToClipboard(paymentData.momo_info.phone_number)}
+                    >
+                      Sao chép
+                    </Button>
+                  </Box>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Typography variant="body2" color="text.secondary">Chủ tài khoản:</Typography>
+                  <Typography variant="body1" fontWeight="bold">
+                    {paymentData.momo_info.account_name}
+                  </Typography>
+                </Box>
+              </Paper>
+
+              {/* Số tiền */}
+              <Paper sx={{ 
+                p: 2, 
+                mb: 2, 
+                bgcolor: '#fff0f6', 
+                border: '2px solid', 
+                borderColor: '#d82d8b' 
+              }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Typography variant="body1" fontWeight="bold">Số tiền cần thanh toán:</Typography>
+                  <Box sx={{ textAlign: 'right' }}>
+                    <Typography variant="h5" fontWeight="bold" sx={{ color: '#d82d8b' }}>
+                      {formatCurrency(paymentData.amount)}
+                    </Typography>
+                    <Button
+                      size="small"
+                      startIcon={<ContentCopy />}
+                      onClick={() => handleCopyToClipboard(paymentData.amount.toString())}
+                      sx={{ color: '#d82d8b' }}
+                    >
+                      Sao chép
+                    </Button>
+                  </Box>
+                </Box>
+              </Paper>
+
+              {/* Nội dung chuyển khoản */}
+              <Paper sx={{ 
+                p: 2, 
+                bgcolor: '#fff9e6', 
+                border: '2px solid', 
+                borderColor: '#ffa726' 
+              }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Typography variant="body1" fontWeight="bold">Nội dung:</Typography>
+                  <Box sx={{ textAlign: 'right' }}>
+                    <Typography variant="h6" fontWeight="bold" sx={{ color: '#f57c00' }}>
+                      {paymentData.transfer_content}
+                    </Typography>
+                    <Button
+                      size="small"
+                      startIcon={<ContentCopy />}
+                      onClick={() => handleCopyToClipboard(paymentData.transfer_content)}
+                      sx={{ color: '#f57c00' }}
+                    >
+                      Sao chép
+                    </Button>
+                  </Box>
+                </Box>
+              </Paper>
+            </Box>
+
+            <Alert severity="info" sx={{ mb: 3 }}>
+              <strong>Hướng dẫn thanh toán:</strong>
+              <ul style={{ margin: '8px 0', paddingLeft: '20px' }}>
+                <li>Mở ứng dụng MoMo trên điện thoại</li>
+                <li>Chọn &ldquo;Quét mã QR&rdquo; hoặc &ldquo;Chuyển tiền&rdquo;</li>
+                <li>Quét mã QR hoặc nhập số điện thoại nhận tiền</li>
+                <li>Kiểm tra <strong>số tiền</strong> và <strong>nội dung</strong> chính xác</li>
+                <li>Xác nhận thanh toán và nhấn &ldquo;Tôi đã thanh toán&rdquo; bên dưới</li>
+              </ul>
+            </Alert>
+
+            {/* Ghi chú thêm */}
+            <TextField
+              fullWidth
+              multiline
+              rows={3}
+              label="Ghi chú thêm (tùy chọn)"
+              placeholder="Ví dụ: Đã thanh toán qua MoMo lúc 14h30..."
+              value={transferNote}
+              onChange={(e) => setTransferNote(e.target.value)}
+              sx={{ mb: 3 }}
+            />
+
+            {/* Button xác nhận */}
+            <Button
+              fullWidth
+              variant="contained"
+              size="large"
+              onClick={handleConfirmTransfer}
+              disabled={isConfirming}
+              sx={{
+                py: 2,
+                fontSize: '1.1rem',
+                fontWeight: 'bold',
+                background: 'linear-gradient(45deg, #d82d8b 30%, #ff69b4 90%)',
+                '&:hover': {
+                  background: 'linear-gradient(45deg, #c11f7a 30%, #ff1493 90%)',
+                },
+              }}
+            >
+              {isConfirming ? (
+                <CircularProgress size={24} color="inherit" />
+              ) : (
+                '✓ Tôi đã thanh toán'
+              )}
+            </Button>
+
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'center', mt: 2 }}>
+              Đơn hàng sẽ được xử lý sau khi chúng tôi xác nhận thanh toán
+            </Typography>
+          </CardContent>
+        </Card>
+      </motion.div>
+    </Container>
+  )
+}
+
+export default MoMoPayment
