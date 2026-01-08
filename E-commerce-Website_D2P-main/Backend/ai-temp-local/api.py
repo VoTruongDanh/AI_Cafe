@@ -10,36 +10,56 @@ from typing import Optional, List
 
 import joblib
 import requests
+import numpy as np
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-# DeepFace import và preload model
-DEEPFACE_AVAILABLE = False
-FACE_MODEL_LOADED = False
+# =============================================================================
+# FACENET-PYTORCH SETUP - Fast & Accurate Face Recognition
+# =============================================================================
+FACENET_AVAILABLE = False
+MTCNN_DETECTOR = None
+FACENET_MODEL = None
 
 try:
-    from deepface import DeepFace
-    DEEPFACE_AVAILABLE = True
-    print("[INFO] DeepFace imported successfully")
+    import torch
+    from facenet_pytorch import MTCNN, InceptionResnetV1
+    from PIL import Image
     
-    # Preload model khi khởi động để tránh chậm lần đầu
-    print("[INFO] Preloading Facenet model (this may take a moment)...")
-    try:
-        DeepFace.build_model("Facenet")
-        FACE_MODEL_LOADED = True
-        print("[INFO] Facenet model preloaded successfully!")
-    except Exception as e:
-        print(f"[WARNING] Could not preload model: {e}")
-        
-except ImportError:
-    print("[WARNING] DeepFace not installed. Face recognition will not be available.")
-    print("[TIP] Run: pip install deepface tensorflow")
+    print("[INFO] Loading FaceNet-PyTorch models...")
+    
+    # Sử dụng CPU
+    device = torch.device('cpu')
+    
+    # MTCNN để detect khuôn mặt (nhanh hơn nhiều so với DeepFace)
+    MTCNN_DETECTOR = MTCNN(
+        image_size=160,
+        margin=20,
+        min_face_size=40,
+        thresholds=[0.6, 0.7, 0.7],  # Ngưỡng thấp hơn = nhạy hơn
+        factor=0.709,
+        post_process=True,
+        device=device,
+        keep_all=False  # Chỉ lấy face lớn nhất
+    )
+    
+    # FaceNet model đã pre-trained trên VGGFace2
+    FACENET_MODEL = InceptionResnetV1(pretrained='vggface2').eval().to(device)
+    
+    FACENET_AVAILABLE = True
+    print("[INFO] FaceNet-PyTorch loaded successfully! Ready for fast face recognition.")
+    
+except ImportError as e:
+    print(f"[WARNING] FaceNet-PyTorch not installed: {e}")
+    print("[TIP] Run: pip install facenet-pytorch torch torchvision")
+except Exception as e:
+    print(f"[ERROR] Error loading FaceNet-PyTorch: {e}")
 
 DATASET_PATH = Path("dataset.jsonl")
 MODEL_PATH = Path("model.joblib")
 
-app = FastAPI(title="Local AI Temperature Classifier")
+app = FastAPI(title="Local AI Temperature Classifier + Face Recognition")
 
 # CORS middleware
 app.add_middleware(
@@ -217,11 +237,10 @@ class PredictRequest(BaseModel):
 @app.get("/")
 def root():
     return {
-        "service": "Local AI Temperature Classifier + Face Recognition",
+        "service": "Local AI Temperature Classifier + Face Recognition (FaceNet-PyTorch)",
         "status": "running",
         "hasModel": MODEL is not None,
-        "deepface_available": DEEPFACE_AVAILABLE,
-        "face_model_loaded": FACE_MODEL_LOADED,
+        "facenet_available": FACENET_AVAILABLE,
         "endpoints": ["/collect", "/predict", "/reload-model", "/stats", "/face/status", "/face/recognize"]
     }
 
@@ -373,7 +392,7 @@ def reload_model():
 
 
 # =============================================================================
-# FACE RECOGNITION ENDPOINTS
+# FACE RECOGNITION ENDPOINTS - FaceNet-PyTorch (Fast & Accurate)
 # =============================================================================
 
 class CustomerFace(BaseModel):
@@ -390,6 +409,15 @@ class FaceRecognizeRequest(BaseModel):
 LARAVEL_PUBLIC_PATH = Path(__file__).parent.parent / "public"
 print(f"[INFO] Laravel public path: {LARAVEL_PUBLIC_PATH}")
 print(f"[INFO] Public path exists: {LARAVEL_PUBLIC_PATH.exists()}")
+
+# Cache embeddings để tăng tốc độ nhận diện
+EMBEDDING_CACHE = {}
+
+def compute_cosine_similarity(emb1: np.ndarray, emb2: np.ndarray) -> float:
+    """Tính cosine similarity giữa 2 embedding vectors"""
+    emb1 = emb1.flatten()
+    emb2 = emb2.flatten()
+    return float(np.dot(emb1, emb2) / (np.linalg.norm(emb1) * np.linalg.norm(emb2)))
 
 def save_base64_image(base64_str: str, prefix: str = "face") -> str:
     """Lưu ảnh base64 thành file tạm và trả về đường dẫn"""
@@ -411,76 +439,90 @@ def save_base64_image(base64_str: str, prefix: str = "face") -> str:
 
 def get_avatar_path(avatar_url: Optional[str] = None, avatar_path: Optional[str] = None) -> Optional[str]:
     """Lấy đường dẫn file avatar - ưu tiên đọc từ disk"""
-    print(f"[DEBUG] get_avatar_path called with avatar_url={avatar_url}, avatar_path={avatar_path}")
-    
     # Nếu có avatar_path (đường dẫn relative), đọc trực tiếp từ disk
     if avatar_path:
-        # avatar_path dạng: /uploads/avatars/xxx.jpg hoặc uploads/avatars/xxx.jpg
         clean_path = avatar_path.lstrip('/').lstrip('\\')
         local_path = LARAVEL_PUBLIC_PATH / clean_path
-        print(f"[DEBUG] Trying local path: {local_path}")
         
         if local_path.exists():
-            print(f"[INFO] Found avatar at: {local_path}")
             return str(local_path)
-        else:
-            print(f"[WARNING] Avatar not found at: {local_path}")
     
     # Thử extract path từ URL và đọc từ disk
     if avatar_url:
-        # URL dạng: http://xxx/uploads/avatars/xxx.jpg hoặc /uploads/avatars/xxx.jpg
-        import re
         match = re.search(r'[/\\]?(uploads[/\\]avatars[/\\][^?]+)', avatar_url)
         if match:
             relative_path = match.group(1).replace('\\', '/')
             local_path = LARAVEL_PUBLIC_PATH / relative_path
-            print(f"[DEBUG] Trying from URL, local path: {local_path}")
             
             if local_path.exists():
-                print(f"[INFO] Found avatar at: {local_path}")
                 return str(local_path)
-            else:
-                print(f"[WARNING] Avatar from URL not found at: {local_path}")
-        
-        # Fallback: download từ URL (có thể chậm hoặc fail)
-        print(f"[INFO] Falling back to download from URL: {avatar_url}")
-        return download_image(avatar_url)
     
-    print(f"[WARNING] No avatar_url or avatar_path provided")
     return None
 
-def download_image(url: str) -> str:
-    """Download ảnh từ URL và lưu thành file tạm (fallback)"""
+def get_face_embedding_facenet(image_path: str, use_cache: bool = True) -> Optional[np.ndarray]:
+    """Lấy face embedding từ ảnh sử dụng FaceNet-PyTorch - NHANH và CHÍNH XÁC"""
+    if not FACENET_AVAILABLE or MTCNN_DETECTOR is None or FACENET_MODEL is None:
+        return None
+    
+    # Check cache
+    if use_cache and image_path in EMBEDDING_CACHE:
+        return EMBEDDING_CACHE[image_path]
+    
     try:
-        print(f"[INFO] Downloading image from: {url}")
-        response = requests.get(url, timeout=10, verify=False)
-        if response.status_code == 200:
-            fd, temp_path = tempfile.mkstemp(suffix='.jpg', prefix='avatar_')
-            os.close(fd)
-            with open(temp_path, 'wb') as f:
-                f.write(response.content)
-            return temp_path
+        from PIL import Image
+        import torch
+        
+        # Đọc ảnh
+        img = Image.open(image_path).convert('RGB')
+        
+        # Detect và crop face bằng MTCNN (rất nhanh!)
+        face_tensor = MTCNN_DETECTOR(img)
+        
+        if face_tensor is None:
+            print(f"[WARNING] No face detected in: {image_path}")
+            return None
+        
+        # Chuẩn hóa và lấy embedding
+        with torch.no_grad():
+            # face_tensor đã được MTCNN resize và normalize
+            if len(face_tensor.shape) == 3:
+                face_tensor = face_tensor.unsqueeze(0)  # Add batch dimension
+            
+            embedding = FACENET_MODEL(face_tensor)
+            embedding = embedding.cpu().numpy()[0]  # Convert to numpy array
+        
+        # Cache embedding cho avatar
+        if use_cache and 'uploads' in image_path:
+            EMBEDDING_CACHE[image_path] = embedding
+        
+        return embedding
+        
     except Exception as e:
-        print(f"[ERROR] Download image failed: {e}")
-    return None
+        print(f"[ERROR] Error getting face embedding: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
 
 @app.get("/face/status")
 def face_status():
     """Kiểm tra trạng thái Face Recognition service"""
     return {
-        "service": "Face Recognition",
-        "deepface_ready": DEEPFACE_AVAILABLE,
-        "model_loaded": FACE_MODEL_LOADED,
-        "message": "DeepFace ready, model loaded" if FACE_MODEL_LOADED else ("DeepFace ready" if DEEPFACE_AVAILABLE else "DeepFace not installed")
+        "service": "Face Recognition (FaceNet-PyTorch)",
+        "facenet_ready": FACENET_AVAILABLE,
+        "model": "InceptionResnetV1-VGGFace2" if FACENET_AVAILABLE else None,
+        "cached_embeddings": len(EMBEDDING_CACHE),
+        "message": "FaceNet-PyTorch ready - Fast & Accurate!" if FACENET_AVAILABLE else "FaceNet-PyTorch not installed"
     }
 
 @app.post("/face/recognize")
 def face_recognize(req: FaceRecognizeRequest):
-    """Nhận diện khuôn mặt từ ảnh camera và so sánh với database khách hàng"""
-    if not DEEPFACE_AVAILABLE:
+    """Nhận diện khuôn mặt từ ảnh camera và so sánh với database khách hàng
+    Sử dụng FaceNet-PyTorch - nhanh và chính xác hơn DeepFace
+    """
+    if not FACENET_AVAILABLE:
         return {
             "matched": False,
-            "message": "DeepFace chưa được cài đặt. Vui lòng chạy: pip install deepface tensorflow"
+            "message": "FaceNet-PyTorch chưa được cài đặt. Vui lòng chạy: pip install facenet-pytorch torch torchvision"
         }
     
     temp_files = []
@@ -490,50 +532,50 @@ def face_recognize(req: FaceRecognizeRequest):
         camera_image_path = save_base64_image(req.image_base64, "camera")
         temp_files.append(camera_image_path)
         
-        best_match = None
-        best_distance = float('inf')
-        threshold = 0.4  # Ngưỡng cho Facenet + cosine (khắt khe hơn để chính xác)
+        # Lấy embedding từ ảnh camera
+        camera_embedding = get_face_embedding_facenet(camera_image_path, use_cache=False)
         
-        print(f"[INFO] Camera image saved: {camera_image_path}")
+        if camera_embedding is None:
+            # Dọn dẹp
+            for f in temp_files:
+                try: os.remove(f)
+                except: pass
+            return {
+                "matched": False,
+                "message": "Không phát hiện khuôn mặt trong ảnh camera"
+            }
+        
+        best_match = None
+        best_similarity = 0.0
+        similarity_threshold = 0.6  # FaceNet: cosine similarity > 0.6 là match
+        
         print(f"[INFO] Processing {len(req.customers)} customers...")
         
         for customer in req.customers:
             try:
-                # Lấy đường dẫn avatar (ưu tiên đọc từ disk)
+                # Lấy đường dẫn avatar
                 avatar_file_path = get_avatar_path(customer.avatar_url, customer.avatar_path)
                 if not avatar_file_path:
-                    print(f"[WARNING] No avatar found for customer {customer.id}: {customer.name}")
                     continue
                 
-                # Nếu là file tạm (từ download), thêm vào danh sách để xóa sau
-                if str(avatar_file_path).startswith(str(tempfile.gettempdir())):
-                    temp_files.append(avatar_file_path)
+                # Lấy embedding từ avatar (có cache)
+                avatar_embedding = get_face_embedding_facenet(avatar_file_path, use_cache=True)
+                if avatar_embedding is None:
+                    continue
                 
-                print(f"[INFO] Comparing with customer {customer.id}: {customer.name} (avatar: {avatar_file_path})")
+                # Tính cosine similarity
+                similarity = compute_cosine_similarity(camera_embedding, avatar_embedding)
                 
-                # So sánh khuôn mặt với DeepFace (tối ưu tốc độ)
-                result = DeepFace.verify(
-                    img1_path=camera_image_path,
-                    img2_path=avatar_file_path,
-                    model_name="Facenet",  # Nhanh hơn Facenet512, vẫn chính xác
-                    detector_backend="opencv",  # Nhanh nhất, đủ tốt cho indoor
-                    distance_metric="cosine",
-                    enforce_detection=False  # Không báo lỗi nếu không tìm thấy khuôn mặt
-                )
+                print(f"[DEBUG] Customer {customer.name} (ID: {customer.id}): similarity={similarity:.4f}")
                 
-                distance = result.get('distance', 1.0)
-                verified = result.get('verified', False)
-                
-                print(f"[DEBUG] Customer {customer.name}: distance={distance}, verified={verified}")
-                
-                if distance < best_distance:
-                    best_distance = distance
-                    if verified or distance < threshold:
+                if similarity > best_similarity:
+                    best_similarity = similarity
+                    if similarity >= similarity_threshold:
                         best_match = {
                             "customer_id": customer.id,
                             "customer_name": customer.name,
-                            "distance": distance,
-                            "confidence": max(0, min(100, (1 - distance) * 100))
+                            "similarity": similarity,
+                            "confidence": round(similarity * 100, 2)
                         }
                         
             except Exception as e:
@@ -549,26 +591,27 @@ def face_recognize(req: FaceRecognizeRequest):
                 pass
         
         if best_match:
-            print(f"[SUCCESS] Found match: {best_match['customer_name']} (confidence: {best_match['confidence']:.1f}%)")
+            print(f"[SUCCESS] Found match: {best_match['customer_name']} (confidence: {best_match['confidence']}%)")
             return {
                 "matched": True,
                 "customer_id": best_match["customer_id"],
-                "confidence": round(best_match["confidence"], 2),
-                "distance": round(best_match["distance"], 4),
+                "confidence": best_match["confidence"],
+                "similarity": round(best_match["similarity"], 4),
                 "message": f"Đã nhận diện: {best_match['customer_name']}"
             }
         
-        print(f"[INFO] No match found. Best distance: {best_distance:.4f}" if best_distance < float('inf') else "[INFO] No customers to compare")
+        print(f"[INFO] No match found. Best similarity: {best_similarity:.4f}")
         return {
             "matched": False,
             "message": "Không tìm thấy khách hàng phù hợp trong hệ thống",
-            "best_distance": round(best_distance, 4) if best_distance < float('inf') else None
+            "best_similarity": round(best_similarity, 4) if best_similarity > 0 else None
         }
         
     except Exception as e:
         print(f"[ERROR] Recognition error: {e}")
         import traceback
         traceback.print_exc()
+        
         # Dọn dẹp file tạm khi có lỗi
         for temp_file in temp_files:
             try:
@@ -582,13 +625,25 @@ def face_recognize(req: FaceRecognizeRequest):
             "message": f"Lỗi nhận diện: {str(e)}"
         }
 
+@app.post("/face/clear-cache")
+def face_clear_cache():
+    """Xóa cache embeddings (khi avatar được cập nhật)"""
+    global EMBEDDING_CACHE
+    count = len(EMBEDDING_CACHE)
+    EMBEDDING_CACHE = {}
+    return {
+        "ok": True,
+        "cleared": count,
+        "message": f"Đã xóa {count} cached embeddings"
+    }
+
 @app.post("/face/verify")
 def face_verify_single(image1_base64: str, image2_base64: str):
     """So sánh 2 ảnh xem có phải cùng 1 người không"""
-    if not DEEPFACE_AVAILABLE:
+    if not FACENET_AVAILABLE:
         return {
             "verified": False,
-            "message": "DeepFace chưa được cài đặt"
+            "message": "FaceNet-PyTorch chưa được cài đặt"
         }
     
     temp_files = []
@@ -598,14 +653,8 @@ def face_verify_single(image1_base64: str, image2_base64: str):
         img2_path = save_base64_image(image2_base64, "img2")
         temp_files.extend([img1_path, img2_path])
         
-        result = DeepFace.verify(
-            img1_path=img1_path,
-            img2_path=img2_path,
-            model_name="Facenet",  # Nhanh hơn
-            detector_backend="opencv",  # Nhanh nhất
-            distance_metric="cosine",
-            enforce_detection=False
-        )
+        emb1 = get_face_embedding_facenet(img1_path, use_cache=False)
+        emb2 = get_face_embedding_facenet(img2_path, use_cache=False)
         
         # Dọn dẹp
         for temp_file in temp_files:
@@ -614,11 +663,19 @@ def face_verify_single(image1_base64: str, image2_base64: str):
             except:
                 pass
         
+        if emb1 is None or emb2 is None:
+            return {
+                "verified": False,
+                "message": "Không phát hiện khuôn mặt trong một hoặc cả hai ảnh"
+            }
+        
+        similarity = compute_cosine_similarity(emb1, emb2)
+        
         return {
-            "verified": result.get('verified', False),
-            "distance": round(result.get('distance', 1.0), 4),
-            "confidence": round(max(0, (1 - result.get('distance', 1.0)) * 100), 2),
-            "threshold": result.get('threshold', 0.4)
+            "verified": similarity >= 0.6,
+            "similarity": round(similarity, 4),
+            "confidence": round(similarity * 100, 2),
+            "threshold": 0.6
         }
         
     except Exception as e:

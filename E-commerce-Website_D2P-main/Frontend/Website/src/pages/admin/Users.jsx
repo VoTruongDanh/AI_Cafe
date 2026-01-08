@@ -42,7 +42,7 @@ import {
 import { toast } from 'react-toastify';
 import AdminPageLayout from '../../components/admin/AdminPageLayout';
 import { ADMIN_COLORS, ADMIN_GRID_STYLES } from '../../constants/adminTheme';
-import { adminUsersApi } from '../../services/api';
+import { adminUsersApi, faceRecognitionApi } from '../../services/api';
 import { userSchema } from '../../validations/adminSchemas';
 import FormTextField from '../../components/common/FormTextField';
 import FormSelect from '../../components/common/FormSelect';
@@ -164,7 +164,7 @@ const Users = () => {
     onSuccess: () => {
       queryClient.invalidateQueries(['admin-users']);
       toast.success('Thêm người dùng thành công!');
-      handleCloseDialog();
+      // Không đóng dialog ở đây, đợi upload avatar xong
     },
     onError: (error) => {
       toast.error(error.response?.data?.message || 'Có lỗi xảy ra');
@@ -185,7 +185,7 @@ const Users = () => {
     onSuccess: () => {
       queryClient.invalidateQueries(['admin-users']);
       toast.success('Cập nhật người dùng thành công!');
-      handleCloseDialog();
+      // Không đóng dialog ở đây, đợi upload avatar xong
     },
     onError: (error) => {
       toast.error(error.response?.data?.message || 'Có lỗi xảy ra');
@@ -249,26 +249,52 @@ const Users = () => {
   });
 
   // Handlers
-  const handleOpenDialog = (user = null) => {
+  const handleOpenDialog = async (user = null) => {
     if (user) {
-      setSelectedUser(user);
-      // ✅ Load existing avatar
-      const avatarUrl = getStaticFileUrl(user.avatar);
-      console.log('Loading avatar:', user.avatar, '→', avatarUrl); // Debug
-      setAvatarPreview(avatarUrl);
-      setOriginalAvatar(avatarUrl); // Lưu avatar gốc
-      setShouldDeleteAvatar(false);
-      reset({
-        name: user.name || '',
-        email: user.email || '',
-        phone: user.phone || '',
-        password: '',
-        role: user.role || 'customer',
-        is_active: user.is_active ?? true,
-        address_line: user.address_line || '',
-        ward: user.ward || '',
-        city: user.city || '',
-      });
+      // ✅ Refetch user mới từ server để có avatar mới nhất
+      try {
+        const response = await adminUsersApi.getById(user.id);
+        const freshUser = response?.data?.data || response?.data || user;
+        setSelectedUser(freshUser);
+        
+        // ✅ Load existing avatar từ user mới
+        const avatarUrl = getStaticFileUrl(freshUser.avatar);
+        console.log('Loading avatar:', freshUser.avatar, '→', avatarUrl); // Debug
+        setAvatarPreview(avatarUrl);
+        setOriginalAvatar(avatarUrl); // Lưu avatar gốc
+        setShouldDeleteAvatar(false);
+        
+        reset({
+          name: freshUser.name || '',
+          email: freshUser.email || '',
+          phone: freshUser.phone || '',
+          password: '',
+          role: freshUser.role || 'customer',
+          is_active: freshUser.is_active ?? true,
+          address_line: freshUser.address_line || '',
+          ward: freshUser.ward || '',
+          city: freshUser.city || '',
+        });
+      } catch (error) {
+        console.error('Error fetching user:', error);
+        // Fallback to user from list if API fails
+        setSelectedUser(user);
+        const avatarUrl = getStaticFileUrl(user.avatar);
+        setAvatarPreview(avatarUrl);
+        setOriginalAvatar(avatarUrl);
+        setShouldDeleteAvatar(false);
+        reset({
+          name: user.name || '',
+          email: user.email || '',
+          phone: user.phone || '',
+          password: '',
+          role: user.role || 'customer',
+          is_active: user.is_active ?? true,
+          address_line: user.address_line || '',
+          ward: user.ward || '',
+          city: user.city || '',
+        });
+      }
     } else {
       setSelectedUser(null);
       setAvatarPreview(null);
@@ -365,9 +391,12 @@ const Users = () => {
         setIsUploadingAvatar(true);
         try {
           await adminUsersApi.update(userId, { avatar: null });
+          // Invalidate để load lại user với avatar đã xóa
+          await queryClient.invalidateQueries(['admin-users']);
           toast.success('Đã xóa ảnh đại diện!');
         } catch (error) {
           console.error('Error deleting avatar:', error);
+          toast.error('Lỗi khi xóa ảnh đại diện');
         } finally {
           setIsUploadingAvatar(false);
         }
@@ -380,8 +409,18 @@ const Users = () => {
         setIsUploadingAvatar(true);
         try {
           await uploadAvatarBase64(userId, avatarPreview);
+          // Xóa cache face recognition để nhận diện được avatar mới
+          try {
+            await faceRecognitionApi.clearCache();
+            console.log('[INFO] Face recognition cache cleared after avatar upload');
+          } catch (cacheError) {
+            console.warn('[WARN] Failed to clear face recognition cache:', cacheError);
+          }
+          // Invalidate để load lại user với avatar mới
+          await queryClient.invalidateQueries(['admin-users']);
           toast.success('Cập nhật ảnh đại diện thành công!');
         } catch (error) {
+          console.error('Error uploading avatar:', error);
           toast.error('Lỗi khi upload ảnh đại diện');
         } finally {
           setIsUploadingAvatar(false);
@@ -392,7 +431,10 @@ const Users = () => {
     if (selectedUser) {
       updateMutation.mutate({ id: selectedUser.id, data: submitData }, {
         onSuccess: async () => {
+          // Đợi upload avatar xong trước khi đóng dialog
           await handleAvatarUpload(selectedUser.id);
+          // Đóng dialog sau khi upload xong
+          handleCloseDialog();
         }
       });
     } else {
@@ -400,8 +442,11 @@ const Users = () => {
         onSuccess: async (response) => {
           const newUserId = response?.data?.id || response?.id;
           if (newUserId) {
+            // Đợi upload avatar xong trước khi đóng dialog
             await handleAvatarUpload(newUserId);
           }
+          // Đóng dialog sau khi upload xong
+          handleCloseDialog();
         }
       });
     }

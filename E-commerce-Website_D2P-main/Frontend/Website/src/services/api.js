@@ -288,6 +288,7 @@ export const faceRecognitionApi = {
   checkStatus: () => api.get('/admin/face/status'),
   getCustomers: () => api.get('/admin/face/customers'),
   recognize: (imageBase64) => api.post('/admin/face/recognize', { image_base64: imageBase64 }),
+  clearCache: () => api.post('/admin/face/clear-cache'),
 }
 
 // Admin Categories API

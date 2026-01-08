@@ -287,6 +287,7 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role.admin'])->group(functi
         Route::get('status', [FaceRecognitionController::class, 'checkStatus']);
         Route::get('customers', [FaceRecognitionController::class, 'getCustomersWithAvatar']);
         Route::post('recognize', [FaceRecognitionController::class, 'recognize']);
+        Route::post('clear-cache', [FaceRecognitionController::class, 'clearCache']);
     });
 });
 

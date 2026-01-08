@@ -165,10 +165,15 @@ class FaceRecognitionController extends Controller
                 ->get($this->aiServiceUrl . '/face/status');
 
             if ($response->successful()) {
+                $result = $response->json();
+                // Support both DeepFace and FaceNet-PyTorch
+                $faceReady = $result['facenet_ready'] ?? $result['deepface_ready'] ?? false;
                 return response()->json([
                     'success' => true,
                     'ai_service' => 'online',
-                    'deepface_ready' => $response->json()['deepface_ready'] ?? false,
+                    'deepface_ready' => $faceReady, // Keep for backward compatibility
+                    'facenet_ready' => $faceReady,
+                    'model' => $result['model'] ?? 'unknown',
                     'message' => 'AI Service đang hoạt động'
                 ]);
             }
@@ -185,6 +190,48 @@ class FaceRecognitionController extends Controller
                 'ai_service' => 'offline',
                 'message' => 'Không thể kết nối đến AI Service'
             ]);
+        }
+    }
+
+    /**
+     * Xóa cache embedding khi avatar được cập nhật
+     * 
+     * @OA\Post(
+     *     path="/admin/face/clear-cache",
+     *     tags={"Face Recognition"},
+     *     summary="Xóa cache embedding để cập nhật avatar mới",
+     *     security={{"sanctum":{}}},
+     *     @OA\Response(response=200, description="Cache đã được xóa")
+     * )
+     */
+    public function clearCache(Request $request)
+    {
+        $this->ensureAdmin($request);
+
+        try {
+            $response = Http::timeout(5)
+                ->withoutVerifying()
+                ->post($this->aiServiceUrl . '/face/clear-cache');
+
+            if ($response->successful()) {
+                $result = $response->json();
+                return response()->json([
+                    'success' => true,
+                    'cleared' => $result['cleared'] ?? 0,
+                    'message' => $result['message'] ?? 'Cache đã được xóa'
+                ]);
+            }
+
+            return response()->json([
+                'success' => false,
+                'message' => 'AI Service không phản hồi'
+            ], 500);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Lỗi kết nối AI Service: ' . $e->getMessage()
+            ], 500);
         }
     }
 

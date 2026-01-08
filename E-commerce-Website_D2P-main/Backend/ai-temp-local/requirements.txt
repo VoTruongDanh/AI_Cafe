@@ -4,7 +4,9 @@ scikit-learn==1.5.1
 joblib==1.4.2
 pydantic==2.8.2
 requests==2.31.0
-# Face Recognition
-deepface==0.0.96
-tensorflow==2.20.0
-tf-keras==2.20.1
+# Face Recognition - FaceNet-PyTorch (Fast & Accurate)
+facenet-pytorch==2.6.0
+torch>=2.0.0
+torchvision>=0.15.0
+numpy<2.0.0
+Pillow>=10.2.0,<10.3.0
