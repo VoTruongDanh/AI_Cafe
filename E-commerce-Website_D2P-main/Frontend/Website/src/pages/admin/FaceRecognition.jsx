@@ -25,6 +25,10 @@ import {
   FormControlLabel,
   Checkbox,
   IconButton,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel,
 } from '@mui/material';
 import {
   CameraAlt as CameraIcon,
@@ -45,6 +49,8 @@ import {
   LocationOn as LocationIcon,
   Favorite as FavoriteIcon,
   Visibility as VisibilityIcon,
+  Videocam as VideocamIcon,
+  SwitchCamera as SwitchCameraIcon,
 } from '@mui/icons-material';
 import AdminPageLayout from '../../components/admin/AdminPageLayout';
 import { ADMIN_COLORS } from '../../constants/adminTheme';
@@ -52,7 +58,7 @@ import { faceRecognitionApi, adminUsersApi } from '../../services/api';
 import api from '../../services/api';
 import { toast } from 'react-toastify';
 
-const SCAN_INTERVAL = 3500; // Quét mỗi 3.5 giây (tối ưu tốc độ)
+const SCAN_INTERVAL = 2000; // Quét mỗi 2 giây (giảm để nhận diện nhanh hơn)
 const MAX_SCANS_BEFORE_NEW_CUSTOMER = 3; // Sau 3 lần quét không tìm thấy -> hiện khách mới
 
 const FaceRecognition = () => {
@@ -68,6 +74,16 @@ const FaceRecognition = () => {
   const [capturedImage, setCapturedImage] = useState(null); // Ảnh đã chụp cho khách mới
   const [lastScanTime, setLastScanTime] = useState(null);
   const [error, setError] = useState(null);
+  const [processingTime, setProcessingTime] = useState(null); // Thời gian xử lý (ms)
+  const [debugInfo, setDebugInfo] = useState(null); // Thông tin debug
+  
+  // Face detection info
+  const [faceBox, setFaceBox] = useState(null); // Bounding box của mặt [x1, y1, x2, y2]
+  const [faceQuality, setFaceQuality] = useState(0); // Điểm chất lượng hiện tại
+  const [bestFaceImage, setBestFaceImage] = useState(null); // Ảnh mặt đã crop tốt nhất
+  const [bestFaceQuality, setBestFaceQuality] = useState(0); // Điểm chất lượng cao nhất
+  const [faceDetectedCount, setFaceDetectedCount] = useState(0); // Số lần detect được mặt (có mặt trong frame)
+  const [noFaceCount, setNoFaceCount] = useState(0); // Số lần không có mặt
   
   // Dialog tạo tài khoản mới
   const [showCreateDialog, setShowCreateDialog] = useState(false);
@@ -92,6 +108,44 @@ const FaceRecognition = () => {
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
   const scanIntervalRef = useRef(null);
+
+  // Camera selection
+  const [availableCameras, setAvailableCameras] = useState([]);
+  const [selectedCameraId, setSelectedCameraId] = useState('');
+  const [loadingCameras, setLoadingCameras] = useState(false);
+
+  // Lấy danh sách camera khi component mount
+  useEffect(() => {
+    const getCameras = async () => {
+      setLoadingCameras(true);
+      try {
+        // Cần request permission trước để enumerate devices
+        const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
+        tempStream.getTracks().forEach(track => track.stop());
+        
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(device => device.kind === 'videoinput');
+        setAvailableCameras(videoDevices);
+        
+        // Auto-select camera mặt trước (user) nếu có, hoặc camera đầu tiên
+        const frontCamera = videoDevices.find(d => 
+          d.label.toLowerCase().includes('front') || 
+          d.label.toLowerCase().includes('user') ||
+          d.label.toLowerCase().includes('trước')
+        );
+        if (frontCamera) {
+          setSelectedCameraId(frontCamera.deviceId);
+        } else if (videoDevices.length > 0) {
+          setSelectedCameraId(videoDevices[0].deviceId);
+        }
+      } catch (err) {
+        console.error('Error enumerating cameras:', err);
+      } finally {
+        setLoadingCameras(false);
+      }
+    };
+    getCameras();
+  }, []);
 
   // Kiểm tra trạng thái AI Service
   const { data: statusData, isLoading: isCheckingStatus } = useQuery({
@@ -120,12 +174,21 @@ const FaceRecognition = () => {
       setIsNewCustomer(false);
       setCapturedImage(null);
       
+      // Cấu hình video constraints
+      const videoConstraints = {
+        width: { ideal: 640 },
+        height: { ideal: 480 }
+      };
+      
+      // Sử dụng camera đã chọn nếu có
+      if (selectedCameraId) {
+        videoConstraints.deviceId = { exact: selectedCameraId };
+      } else {
+        videoConstraints.facingMode = 'user';
+      }
+      
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { 
-          facingMode: 'user', 
-          width: { ideal: 640 },
-          height: { ideal: 480 }
-        }
+        video: videoConstraints
       });
       streamRef.current = stream;
       setIsCameraOpen(true);
@@ -133,7 +196,7 @@ const FaceRecognition = () => {
       console.error('Error accessing camera:', err);
       setError('Không thể truy cập camera. Vui lòng cho phép quyền truy cập camera.');
     }
-  }, []);
+  }, [selectedCameraId]);
 
   // Gắn stream vào video và bắt đầu quét khi camera mở
   useEffect(() => {
@@ -174,22 +237,79 @@ const FaceRecognition = () => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
     
-    // Chụp frame từ video
-    canvas.width = video.videoWidth || 640;
-    canvas.height = video.videoHeight || 480;
+    // Chụp frame từ video với quality cao hơn
+    const videoWidth = video.videoWidth || 640;
+    const videoHeight = video.videoHeight || 480;
+    canvas.width = videoWidth;
+    canvas.height = videoHeight;
     const ctx = canvas.getContext('2d');
-    ctx.drawImage(video, 0, 0);
-    const imageData = canvas.toDataURL('image/jpeg', 0.8);
+    
+    // Mirror ảnh vì video đã được mirror trong CSS
+    ctx.translate(videoWidth, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(video, 0, 0, videoWidth, videoHeight);
+    
+    // Reset transform
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    
+    const imageData = canvas.toDataURL('image/jpeg', 0.95);
+    console.log(`[SCAN] Canvas: ${videoWidth}x${videoHeight}, Data length: ${imageData.length}`);
 
     setScanCount(prev => prev + 1);
     setLastScanTime(new Date());
 
+    const startTime = Date.now();
+
     try {
       const response = await faceRecognitionApi.recognize(imageData);
       const result = response.data;
+      
+      console.log('[API Response]', result); // Debug log
+      
+      // Cập nhật thông tin debug
+      const clientTime = Date.now() - startTime;
+      setProcessingTime(result.processing_time_ms || clientTime);
+      setDebugInfo({
+        cosine_similarity: result.cosine_similarity,
+        all_matches: result.all_matches,
+        message: result.message,
+        server_time: result.processing_time_ms,
+        client_time: clientTime,
+        face_quality: result.face_quality,
+        face_detected: result.face_detected,
+        enhanced: result.enhanced,
+        success: result.success,
+        matched: result.matched,
+      });
+      
+      // === KIỂM TRA CÓ DETECT ĐƯỢC MẶT KHÔNG ===
+      if (!result.face_detected) {
+        // KHÔNG có mặt trong frame - không so sánh, không đếm "khách mới"
+        console.log(`[NO FACE] Scan #${scanCount + 1} - Không phát hiện khuôn mặt`, result);
+        setFaceBox(null);
+        setFaceQuality(0);
+        setNoFaceCount(prev => prev + 1);
+        // Không tăng noMatchCount vì chưa có mặt để so sánh
+        return;
+      }
+      
+      // === CÓ MẶT - Cập nhật face box ===
+      setNoFaceCount(0); // Reset đếm không có mặt
+      setFaceBox(result.face_box);
+      setFaceQuality(result.face_quality || 0);
+      setFaceDetectedCount(prev => prev + 1);
+      
+      // Lưu ảnh mặt tốt nhất (có quality cao nhất)
+      const currentQuality = result.face_quality || 0;
+      if (currentQuality > bestFaceQuality && result.cropped_face) {
+        setBestFaceImage(result.cropped_face);
+        setBestFaceQuality(currentQuality);
+        console.log(`[BEST FACE] New best quality: ${currentQuality.toFixed(1)}%`);
+      }
 
       if (result.matched) {
         // Tìm thấy khách hàng - dừng quét
+        console.log(`[MATCH] Customer: ${result.customer?.name || result.customer_id}, Confidence: ${result.confidence}%`);
         setRecognitionResult(result);
         setIsScanning(false);
         setNoMatchCount(0);
@@ -199,25 +319,32 @@ const FaceRecognition = () => {
           scanIntervalRef.current = null;
         }
       } else {
-        // Chưa tìm thấy - tăng đếm
-        setNoMatchCount(prev => {
-          const newCount = prev + 1;
-          // Sau MAX_SCANS_BEFORE_NEW_CUSTOMER lần không tìm thấy -> hiện khách mới
-          if (newCount >= MAX_SCANS_BEFORE_NEW_CUSTOMER) {
-            setIsNewCustomer(true);
-            setCapturedImage(imageData); // Lưu ảnh đã chụp
-            setIsScanning(false);
-            if (scanIntervalRef.current) {
-              clearInterval(scanIntervalRef.current);
-              scanIntervalRef.current = null;
-            }
+        // CÓ MẶT nhưng KHÔNG MATCH với ai - đây mới là "potential new customer"
+        const effectiveQuality = Math.max(currentQuality, bestFaceQuality);
+        console.log(`[NO MATCH] Scan #${scanCount + 1}, Quality: ${currentQuality.toFixed(1)}%, Best: ${effectiveQuality.toFixed(1)}%`);
+        
+        // Tăng đếm và kiểm tra điều kiện hiện "khách mới"
+        const newNoMatchCount = noMatchCount + 1;
+        setNoMatchCount(newNoMatchCount);
+        
+        // Sau MAX_SCANS_BEFORE_NEW_CUSTOMER lần có mặt nhưng không match -> hiện khách mới
+        if (newNoMatchCount >= MAX_SCANS_BEFORE_NEW_CUSTOMER && effectiveQuality > 30) {
+          console.log(`[NEW CUSTOMER] Triggered after ${newNoMatchCount} scans, quality: ${effectiveQuality.toFixed(1)}%`);
+          setIsNewCustomer(true);
+          // Sử dụng ảnh mặt đã crop tốt nhất
+          setCapturedImage(bestFaceImage || result.cropped_face);
+          setIsScanning(false);
+          if (scanIntervalRef.current) {
+            clearInterval(scanIntervalRef.current);
+            scanIntervalRef.current = null;
           }
-          return newCount;
-        });
+        }
         setRecognitionResult(null);
       }
     } catch (err) {
       console.error('Scan error:', err);
+      setDebugInfo({ error: err.message });
+      setFaceBox(null);
       // Không dừng quét khi có lỗi, chỉ log
     }
   };
@@ -242,13 +369,35 @@ const FaceRecognition = () => {
 
   // Reset và quét lại
   const resetAndScan = useCallback(() => {
+    console.log('[RESET] Clearing all face data and restarting scan...');
+    
+    // Dừng scan hiện tại trước
+    if (scanIntervalRef.current) {
+      clearInterval(scanIntervalRef.current);
+      scanIntervalRef.current = null;
+    }
+    
+    // Clear TẤT CẢ dữ liệu cũ
     setRecognitionResult(null);
     setScanCount(0);
     setNoMatchCount(0);
     setIsNewCustomer(false);
     setCapturedImage(null);
-    setIsScanning(true);
-    startRealtimeScan();
+    setFaceBox(null);
+    setFaceQuality(0);
+    setBestFaceImage(null);
+    setBestFaceQuality(0);
+    setDebugInfo(null);
+    setFaceDetectedCount(0);
+    setNoFaceCount(0);
+    setProcessingTime(0);
+    setError(null);
+    
+    // Đợi state clear xong rồi mới bắt đầu scan mới
+    setTimeout(() => {
+      setIsScanning(true);
+      startRealtimeScan();
+    }, 100);
   }, [startRealtimeScan]);
 
   // Mở dialog tạo tài khoản
@@ -313,17 +462,23 @@ const FaceRecognition = () => {
     }
   };
 
-  // Chụp lại ảnh
+  // Chụp lại ảnh - reset và quét lại để tìm ảnh tốt hơn
   const retakePhoto = () => {
-    if (!videoRef.current || !canvasRef.current) return;
-    
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    canvas.width = video.videoWidth || 640;
-    canvas.height = video.videoHeight || 480;
-    const ctx = canvas.getContext('2d');
-    ctx.drawImage(video, 0, 0);
-    setCapturedImage(canvas.toDataURL('image/jpeg', 0.8));
+    // Reset các state liên quan đến face capture
+    setIsNewCustomer(false);
+    setCapturedImage(null);
+    setBestFaceImage(null);
+    setBestFaceQuality(0);
+    setNoMatchCount(0);
+    setScanCount(0);
+    setFaceBox(null);
+    setFaceQuality(0);
+    setFaceDetectedCount(0);
+    setNoFaceCount(0);
+    setDebugInfo(null);
+    // Bắt đầu quét lại
+    setIsScanning(true);
+    startRealtimeScan();
   };
 
   // Helper để tạo URL cho static files
@@ -444,7 +599,7 @@ const FaceRecognition = () => {
     return () => clearTimeout(timer);
   }, [temperature, minConfidence, locationLoading, fetchSuggestions]);
 
-  const isAIReady = statusData?.ai_service === 'online' && statusData?.deepface_ready;
+  const isAIReady = statusData?.ai_service === 'online' && (statusData?.facenet_ready || statusData?.deepface_ready);
 
   return (
     <AdminPageLayout
@@ -461,12 +616,21 @@ const FaceRecognition = () => {
         <Alert severity="warning" sx={{ mb: 3 }}>
           <strong>AI Service chưa sẵn sàng!</strong>
           <br />
-          {!statusData?.deepface_ready && (
+          {!(statusData?.facenet_ready || statusData?.deepface_ready) && (
             <>
-              DeepFace chưa được cài đặt. Vui lòng chạy:
+              Face Recognition chưa được cài đặt. Vui lòng chạy:
               <code style={{ display: 'block', marginTop: 8, padding: 8, background: '#f5f5f5', borderRadius: 4 }}>
                 cd Backend/ai-temp-local<br />
-                pip install deepface tensorflow tf-keras
+                pip install facenet-pytorch torch torchvision opencv-python
+              </code>
+            </>
+          )}
+          {statusData?.ai_service !== 'online' && (
+            <>
+              AI Service không chạy. Vui lòng khởi động:
+              <code style={{ display: 'block', marginTop: 8, padding: 8, background: '#f5f5f5', borderRadius: 4 }}>
+                cd Backend/ai-temp-local<br />
+                python api.py
               </code>
             </>
           )}
@@ -503,7 +667,57 @@ const FaceRecognition = () => {
                   <LinearProgress color="primary" />
                   <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
                     Đã quét {scanCount} lần | Quét mỗi {SCAN_INTERVAL / 1000}s
+                    {processingTime && ` | Xử lý: ${processingTime}ms`}
                   </Typography>
+                </Box>
+              )}
+              
+              {/* Debug info - hiển thị face detection status */}
+              {isScanning && (
+                <Box sx={{ mb: 1 }}>
+                  <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1 }}>
+                    {faceBox ? (
+                      <Chip 
+                        size="small"
+                        icon={<SuccessIcon sx={{ fontSize: 16 }} />}
+                        label={`Mặt: ${faceQuality.toFixed(0)}%`}
+                        color={faceQuality > 50 ? 'success' : faceQuality > 30 ? 'warning' : 'default'}
+                      />
+                    ) : (
+                      <Chip 
+                        size="small"
+                        icon={<FailIcon sx={{ fontSize: 16 }} />}
+                        label="Không thấy mặt"
+                        color="error"
+                        variant="outlined"
+                      />
+                    )}
+                    {bestFaceQuality > 0 && (
+                      <Chip 
+                        size="small"
+                        label={`Tốt nhất: ${bestFaceQuality.toFixed(0)}%`}
+                        color="primary"
+                        variant="outlined"
+                      />
+                    )}
+                    {noMatchCount > 0 && (
+                      <Chip 
+                        size="small"
+                        label={`Đã quét: ${noMatchCount}/${MAX_SCANS_BEFORE_NEW_CUSTOMER}`}
+                        variant="outlined"
+                      />
+                    )}
+                    {debugInfo?.enhanced && (
+                      <Chip size="small" label="Auto-sáng" color="info" variant="outlined" />
+                    )}
+                  </Box>
+                  {noFaceCount > 3 && (
+                    <Alert severity="warning" sx={{ py: 0.5 }}>
+                      <Typography variant="caption">
+                        Không phát hiện khuôn mặt. Hãy đưa mặt vào khung hình và đảm bảo đủ ánh sáng.
+                      </Typography>
+                    </Alert>
+                  )}
                 </Box>
               )}
 
@@ -547,39 +761,84 @@ const FaceRecognition = () => {
                       }}
                     />
                     
-                    {/* Face guide frame - Khung hướng dẫn vị trí khuôn mặt */}
-                    <Box
-                      sx={{
-                        position: 'absolute',
-                        top: '50%',
-                        left: '50%',
-                        transform: 'translate(-50%, -50%)',
-                        width: '45%',
-                        height: '60%',
-                        border: '3px solid',
-                        borderColor: isScanning 
-                          ? (recognitionResult?.matched ? 'success.main' : 'primary.main')
-                          : 'grey.400',
-                        borderRadius: '50%',
-                        pointerEvents: 'none',
-                        boxShadow: isScanning ? '0 0 20px rgba(25, 118, 210, 0.5)' : 'none',
-                        animation: isScanning ? 'faceFramePulse 2s infinite' : 'none',
-                        '&::before': {
-                          content: '""',
+                    {/* Face bounding box - Khung mặt detect được */}
+                    {faceBox && videoRef.current && (() => {
+                      // Video bị mirror (scaleX(-1)), cần tính ngược left
+                      const videoW = videoRef.current.videoWidth || 640;
+                      const videoH = videoRef.current.videoHeight || 480;
+                      const boxW = ((faceBox[2] - faceBox[0]) / videoW) * 100;
+                      const boxH = ((faceBox[3] - faceBox[1]) / videoH) * 100;
+                      // Mirror: left trở thành 100% - right
+                      const mirroredLeft = 100 - ((faceBox[2] / videoW) * 100);
+                      const topPercent = (faceBox[1] / videoH) * 100;
+                      
+                      return (
+                        <Box
+                          sx={{
+                            position: 'absolute',
+                            left: `${mirroredLeft}%`,
+                            top: `${topPercent}%`,
+                            width: `${boxW}%`,
+                            height: `${boxH}%`,
+                            border: '4px solid',
+                            borderColor: recognitionResult?.matched 
+                              ? '#4CAF50' 
+                              : faceQuality > 50 
+                                ? '#2196F3' 
+                                : faceQuality > 30 
+                                  ? '#FF9800'
+                                  : '#f44336',
+                            borderRadius: '12px',
+                            pointerEvents: 'none',
+                            boxShadow: recognitionResult?.matched 
+                              ? '0 0 25px rgba(76,175,80,0.7), inset 0 0 20px rgba(76,175,80,0.2)' 
+                              : '0 0 15px rgba(33,150,243,0.5)',
+                            transition: 'all 0.1s ease-out',
+                            zIndex: 20,
+                          }}
+                        >
+                          {/* Quality score badge */}
+                          <Box
+                            sx={{
+                              position: 'absolute',
+                              top: -28,
+                              left: '50%',
+                              transform: 'translateX(-50%)',
+                              bgcolor: faceQuality > 50 ? '#4CAF50' : faceQuality > 30 ? '#FF9800' : '#f44336',
+                              color: 'white',
+                              px: 1.5,
+                              py: 0.5,
+                              borderRadius: '8px',
+                              fontSize: '0.8rem',
+                              fontWeight: 'bold',
+                              whiteSpace: 'nowrap',
+                              boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+                            }}
+                          >
+                            {faceQuality.toFixed(0)}%
+                          </Box>
+                        </Box>
+                      );
+                    })()}
+                    
+                    {/* Guide frame khi chưa detect được mặt */}
+                    {!faceBox && isScanning && (
+                      <Box
+                        sx={{
                           position: 'absolute',
-                          top: -8,
+                          top: '50%',
                           left: '50%',
-                          transform: 'translateX(-50%)',
-                          width: 20,
-                          height: 20,
-                          borderTop: '3px solid',
-                          borderLeft: '3px solid',
-                          borderRight: '3px solid',
-                          borderColor: 'inherit',
-                          borderRadius: '10px 10px 0 0',
-                        },
-                      }}
-                    />
+                          transform: 'translate(-50%, -50%)',
+                          width: '45%',
+                          height: '60%',
+                          border: '2px dashed',
+                          borderColor: 'grey.500',
+                          borderRadius: 2,
+                          pointerEvents: 'none',
+                          opacity: 0.5,
+                        }}
+                      />
+                    )}
 
                     {/* Corner markers - Góc khung */}
                     {['top-left', 'top-right', 'bottom-left', 'bottom-right'].map((corner) => (
@@ -666,30 +925,151 @@ const FaceRecognition = () => {
                 <canvas ref={canvasRef} style={{ display: 'none' }} />
               </Box>
 
+              {/* Camera Selection */}
+              {availableCameras.length > 1 && (
+                <Box sx={{ mb: 2 }}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel id="camera-select-label">
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <VideocamIcon fontSize="small" />
+                        Chọn Camera
+                      </Box>
+                    </InputLabel>
+                    <Select
+                      labelId="camera-select-label"
+                      value={selectedCameraId}
+                      label="Chọn Camera"
+                      onChange={(e) => {
+                        const newCameraId = e.target.value;
+                        setSelectedCameraId(newCameraId);
+                        // Nếu đang quét, dừng và bắt đầu lại với camera mới
+                        if (isCameraOpen) {
+                          // Dừng stream hiện tại
+                          if (streamRef.current) {
+                            streamRef.current.getTracks().forEach(track => track.stop());
+                          }
+                          if (scanIntervalRef.current) {
+                            clearInterval(scanIntervalRef.current);
+                          }
+                          setIsCameraOpen(false);
+                          setIsScanning(false);
+                          // Bắt đầu lại sau 300ms
+                          setTimeout(async () => {
+                            try {
+                              const stream = await navigator.mediaDevices.getUserMedia({
+                                video: {
+                                  deviceId: { exact: newCameraId },
+                                  width: { ideal: 640 },
+                                  height: { ideal: 480 }
+                                }
+                              });
+                              streamRef.current = stream;
+                              setIsCameraOpen(true);
+                            } catch (err) {
+                              console.error('Error switching camera:', err);
+                              setError('Không thể chuyển camera');
+                            }
+                          }, 300);
+                        }
+                      }}
+                      disabled={loadingCameras}
+                    >
+                      {availableCameras.map((camera, index) => (
+                        <MenuItem key={camera.deviceId} value={camera.deviceId}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <VideocamIcon fontSize="small" color="action" />
+                            {camera.label || `Camera ${index + 1}`}
+                          </Box>
+                        </MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                  {availableCameras.length > 0 && (
+                    <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                      Tìm thấy {availableCameras.length} camera
+                    </Typography>
+                  )}
+                </Box>
+              )}
+
               {/* Camera Controls */}
-              <Stack direction="row" spacing={2} justifyContent="center">
+              <Stack direction="row" spacing={2} justifyContent="center" alignItems="center" flexWrap="wrap">
                 {!isCameraOpen ? (
                   <Button
                     variant="contained"
                     size="large"
                     startIcon={<CameraIcon />}
                     onClick={startScanning}
-                    disabled={!isAIReady}
+                    disabled={!isAIReady || loadingCameras}
                     sx={{ bgcolor: ADMIN_COLORS.primary, px: 4 }}
                   >
-                    Bắt đầu quét
+                    {loadingCameras ? 'Đang tải camera...' : 'Bắt đầu quét'}
                   </Button>
                 ) : (
-                  <Button
-                    variant="contained"
-                    size="large"
-                    color="error"
-                    startIcon={<StopIcon />}
-                    onClick={stopScanning}
-                    sx={{ px: 4 }}
-                  >
-                    Dừng quét
-                  </Button>
+                  <>
+                    <Button
+                      variant="contained"
+                      size="large"
+                      color="error"
+                      startIcon={<StopIcon />}
+                      onClick={stopScanning}
+                      sx={{ px: 4 }}
+                    >
+                      Dừng quét
+                    </Button>
+                    
+                    {/* Quick switch camera button - hiển thị khi có >= 2 camera */}
+                    {availableCameras.length >= 2 && (
+                      <IconButton
+                        onClick={() => {
+                          // Tìm camera tiếp theo trong danh sách
+                          const currentIndex = availableCameras.findIndex(c => c.deviceId === selectedCameraId);
+                          const nextIndex = (currentIndex + 1) % availableCameras.length;
+                          const nextCamera = availableCameras[nextIndex];
+                          
+                          // Trigger change
+                          const event = { target: { value: nextCamera.deviceId } };
+                          setSelectedCameraId(nextCamera.deviceId);
+                          
+                          // Dừng stream hiện tại và chuyển sang camera mới
+                          if (streamRef.current) {
+                            streamRef.current.getTracks().forEach(track => track.stop());
+                          }
+                          if (scanIntervalRef.current) {
+                            clearInterval(scanIntervalRef.current);
+                          }
+                          setIsCameraOpen(false);
+                          setIsScanning(false);
+                          
+                          setTimeout(async () => {
+                            try {
+                              const stream = await navigator.mediaDevices.getUserMedia({
+                                video: {
+                                  deviceId: { exact: nextCamera.deviceId },
+                                  width: { ideal: 640 },
+                                  height: { ideal: 480 }
+                                }
+                              });
+                              streamRef.current = stream;
+                              setIsCameraOpen(true);
+                            } catch (err) {
+                              console.error('Error switching camera:', err);
+                              setError('Không thể chuyển camera');
+                            }
+                          }, 300);
+                        }}
+                        sx={{
+                          bgcolor: 'background.paper',
+                          border: '1px solid',
+                          borderColor: 'divider',
+                          '&:hover': { bgcolor: 'action.hover' }
+                        }}
+                        title="Đổi camera"
+                      >
+                        <SwitchCameraIcon />
+                      </IconButton>
+                    )}
+                  </>
                 )}
               </Stack>
 
@@ -765,21 +1145,34 @@ const FaceRecognition = () => {
                   </Alert>
 
                   <Paper variant="outlined" sx={{ p: 3, textAlign: 'center' }}>
-                    {/* Ảnh đã chụp */}
+                    {/* Ảnh mặt đã crop (tốt nhất) */}
                     {capturedImage && (
                       <Box sx={{ mb: 2 }}>
-                        <Avatar
-                          src={capturedImage}
-                          sx={{ 
-                            width: 120, 
-                            height: 120, 
-                            mx: 'auto',
-                            border: '3px solid',
-                            borderColor: 'primary.main'
-                          }}
-                        />
-                        <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
-                          Ảnh đã chụp
+                        <Box sx={{ position: 'relative', display: 'inline-block' }}>
+                          <Avatar
+                            src={capturedImage}
+                            sx={{ 
+                              width: 140, 
+                              height: 140, 
+                              mx: 'auto',
+                              border: '4px solid',
+                              borderColor: bestFaceQuality > 50 ? 'success.main' : 'warning.main'
+                            }}
+                          />
+                          <Chip
+                            size="small"
+                            label={`Chất lượng: ${bestFaceQuality.toFixed(0)}%`}
+                            color={bestFaceQuality > 50 ? 'success' : 'warning'}
+                            sx={{
+                              position: 'absolute',
+                              bottom: -10,
+                              left: '50%',
+                              transform: 'translateX(-50%)',
+                            }}
+                          />
+                        </Box>
+                        <Typography variant="caption" color="text.secondary" sx={{ mt: 2, display: 'block' }}>
+                          Ảnh khuôn mặt đã crop (tốt nhất trong {scanCount} lần quét)
                         </Typography>
                       </Box>
                     )}
@@ -804,7 +1197,7 @@ const FaceRecognition = () => {
                         startIcon={<PhotoCameraIcon />}
                         onClick={retakePhoto}
                       >
-                        Chụp lại ảnh
+                        Chụp lại (lấy ảnh rõ hơn)
                       </Button>
                       
                       <Button

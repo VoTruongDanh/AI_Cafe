@@ -19,7 +19,7 @@ class FaceRecognitionController extends Controller
 
     public function __construct()
     {
-        $this->aiServiceUrl = config('services.local_ai.url', 'https://127.0.0.1:9009');
+        $this->aiServiceUrl = config('services.local_ai.url', 'http://127.0.0.1:9009');
     }
 
     /**
@@ -107,6 +107,17 @@ class FaceRecognitionController extends Controller
             if ($response->successful()) {
                 $result = $response->json();
                 
+                // Base response với thông tin từ AI Service
+                $baseResponse = [
+                    'success' => true,
+                    'face_detected' => $result['face_detected'] ?? false,
+                    'face_box' => $result['face_box'] ?? null,
+                    'face_quality' => $result['face_quality'] ?? 0,
+                    'face_size' => $result['face_size'] ?? null,
+                    'cropped_face' => $result['cropped_face'] ?? null,
+                    'processing_time_ms' => $result['processing_time_ms'] ?? 0,
+                ];
+                
                 if (isset($result['matched']) && $result['matched']) {
                     // Tìm thấy khách hàng
                     $matchedCustomer = $customers->firstWhere('id', $result['customer_id']);
@@ -114,21 +125,21 @@ class FaceRecognitionController extends Controller
                     // Lấy 5 sản phẩm gần nhất từ đơn hàng
                     $recentProducts = $this->getRecentProducts($result['customer_id']);
                     
-                    return response()->json([
-                        'success' => true,
+                    return response()->json(array_merge($baseResponse, [
                         'matched' => true,
                         'confidence' => $result['confidence'] ?? 0,
+                        'cosine_similarity' => $result['cosine_similarity'] ?? null,
                         'customer' => $matchedCustomer,
+                        'customer_id' => $result['customer_id'],
                         'recent_products' => $recentProducts,
-                        'message' => 'Đã nhận diện thành công'
-                    ]);
+                        'message' => $result['message'] ?? 'Đã nhận diện thành công'
+                    ]));
                 }
                 
-                return response()->json([
-                    'success' => true,
+                return response()->json(array_merge($baseResponse, [
                     'matched' => false,
                     'message' => $result['message'] ?? 'Không tìm thấy khách hàng phù hợp'
-                ]);
+                ]));
             }
 
             return response()->json([
@@ -140,6 +151,49 @@ class FaceRecognitionController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Lỗi kết nối AI Service: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Debug - Test face detection only (không cần customers)
+     */
+    public function detectOnly(Request $request)
+    {
+        $this->ensureAdmin($request);
+
+        $request->validate([
+            'image_base64' => ['required', 'string'],
+        ]);
+
+        try {
+            $response = Http::timeout(30)
+                ->withoutVerifying()
+                ->post($this->aiServiceUrl . '/face/detect', [
+                    'image_base64' => $request->input('image_base64'),
+                ]);
+
+            if ($response->successful()) {
+                $result = $response->json();
+                return response()->json([
+                    'success' => true,
+                    'ai_response' => $result,
+                    'ai_url' => $this->aiServiceUrl,
+                ]);
+            }
+
+            return response()->json([
+                'success' => false,
+                'message' => 'AI Service không phản hồi',
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ], 500);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Lỗi kết nối AI Service: ' . $e->getMessage(),
+                'ai_url' => $this->aiServiceUrl,
             ], 500);
         }
     }
