@@ -27,7 +27,7 @@ echo.
 
 REM Kiem tra AI Service
 echo [INFO] Kiem tra AI Service...
-python -c "import requests; import urllib3; urllib3.disable_warnings(); requests.get('https://127.0.0.1:9009/docs', timeout=2, verify=False)" >nul 2>&1
+python -c "import requests; requests.get('http://127.0.0.1:9009/docs', timeout=2)" >nul 2>&1
 if errorlevel 1 (
     echo [ERROR] AI Service khong chay!
     echo [INFO] Vui long chay: 1-start-ai-service.bat
@@ -106,7 +106,7 @@ echo ============================================================
 echo.
 
 echo [INFO] Dang reload model...
-python -c "import requests; import urllib3; urllib3.disable_warnings(); r = requests.post('https://127.0.0.1:9009/reload-model', verify=False, timeout=5); print(r.json().get('message', 'OK'))" 2>nul
+python -c "import requests; r = requests.post('http://127.0.0.1:9009/reload-model', timeout=5); print(r.json().get('message', 'OK'))" 2>nul
 echo.
 
 echo ============================================================

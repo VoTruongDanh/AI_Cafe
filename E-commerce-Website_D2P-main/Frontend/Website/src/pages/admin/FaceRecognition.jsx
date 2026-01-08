@@ -108,6 +108,9 @@ const FaceRecognition = () => {
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
   const scanIntervalRef = useRef(null);
+  const noMatchCountRef = useRef(0); // Ref để track noMatchCount đúng trong callback
+  const bestFaceImageRef = useRef(null); // Ref để track bestFaceImage đúng trong callback
+  const bestFaceQualityRef = useRef(0); // Ref để track bestFaceQuality đúng trong callback
 
   // Camera selection
   const [availableCameras, setAvailableCameras] = useState([]);
@@ -170,9 +173,15 @@ const FaceRecognition = () => {
       setError(null);
       setRecognitionResult(null);
       setScanCount(0);
+      // Reset TẤT CẢ refs
+      noMatchCountRef.current = 0;
+      bestFaceImageRef.current = null;
+      bestFaceQualityRef.current = 0;
       setNoMatchCount(0);
       setIsNewCustomer(false);
       setCapturedImage(null);
+      setBestFaceImage(null);
+      setBestFaceQuality(0);
       
       // Cấu hình video constraints
       const videoConstraints = {
@@ -299,10 +308,12 @@ const FaceRecognition = () => {
       setFaceQuality(result.face_quality || 0);
       setFaceDetectedCount(prev => prev + 1);
       
-      // Lưu ảnh mặt tốt nhất (có quality cao nhất)
+      // Lưu ảnh mặt tốt nhất (có quality cao nhất) - dùng ref để tránh stale closure
       const currentQuality = result.face_quality || 0;
-      if (currentQuality > bestFaceQuality && result.cropped_face) {
-        setBestFaceImage(result.cropped_face);
+      if (currentQuality > bestFaceQualityRef.current && result.cropped_face) {
+        bestFaceImageRef.current = result.cropped_face;
+        bestFaceQualityRef.current = currentQuality;
+        setBestFaceImage(result.cropped_face); // Cập nhật state để UI hiển thị
         setBestFaceQuality(currentQuality);
         console.log(`[BEST FACE] New best quality: ${currentQuality.toFixed(1)}%`);
       }
@@ -312,6 +323,7 @@ const FaceRecognition = () => {
         console.log(`[MATCH] Customer: ${result.customer?.name || result.customer_id}, Confidence: ${result.confidence}%`);
         setRecognitionResult(result);
         setIsScanning(false);
+        noMatchCountRef.current = 0; // Reset ref
         setNoMatchCount(0);
         setIsNewCustomer(false);
         if (scanIntervalRef.current) {
@@ -320,19 +332,21 @@ const FaceRecognition = () => {
         }
       } else {
         // CÓ MẶT nhưng KHÔNG MATCH với ai - đây mới là "potential new customer"
-        const effectiveQuality = Math.max(currentQuality, bestFaceQuality);
-        console.log(`[NO MATCH] Scan #${scanCount + 1}, Quality: ${currentQuality.toFixed(1)}%, Best: ${effectiveQuality.toFixed(1)}%`);
+        const effectiveQuality = Math.max(currentQuality, bestFaceQualityRef.current);
         
-        // Tăng đếm và kiểm tra điều kiện hiện "khách mới"
-        const newNoMatchCount = noMatchCount + 1;
-        setNoMatchCount(newNoMatchCount);
+        // Dùng ref để track đúng count (tránh stale closure)
+        noMatchCountRef.current += 1;
+        const newNoMatchCount = noMatchCountRef.current;
+        setNoMatchCount(newNoMatchCount); // Cập nhật state để UI hiển thị
+        
+        console.log(`[NO MATCH] Scan #${scanCount + 1}, NoMatch: ${newNoMatchCount}/${MAX_SCANS_BEFORE_NEW_CUSTOMER}, Quality: ${currentQuality.toFixed(1)}%, Best: ${effectiveQuality.toFixed(1)}%`);
         
         // Sau MAX_SCANS_BEFORE_NEW_CUSTOMER lần có mặt nhưng không match -> hiện khách mới
         if (newNoMatchCount >= MAX_SCANS_BEFORE_NEW_CUSTOMER && effectiveQuality > 30) {
           console.log(`[NEW CUSTOMER] Triggered after ${newNoMatchCount} scans, quality: ${effectiveQuality.toFixed(1)}%`);
           setIsNewCustomer(true);
-          // Sử dụng ảnh mặt đã crop tốt nhất
-          setCapturedImage(bestFaceImage || result.cropped_face);
+          // Sử dụng ảnh mặt đã crop tốt nhất từ ref
+          setCapturedImage(bestFaceImageRef.current || result.cropped_face);
           setIsScanning(false);
           if (scanIntervalRef.current) {
             clearInterval(scanIntervalRef.current);
@@ -377,7 +391,12 @@ const FaceRecognition = () => {
       scanIntervalRef.current = null;
     }
     
-    // Clear TẤT CẢ dữ liệu cũ
+    // Reset TẤT CẢ refs TRƯỚC
+    noMatchCountRef.current = 0;
+    bestFaceImageRef.current = null;
+    bestFaceQualityRef.current = 0;
+    
+    // Clear TẤT CẢ dữ liệu cũ (state)
     setRecognitionResult(null);
     setScanCount(0);
     setNoMatchCount(0);
@@ -464,6 +483,11 @@ const FaceRecognition = () => {
 
   // Chụp lại ảnh - reset và quét lại để tìm ảnh tốt hơn
   const retakePhoto = () => {
+    // Reset TẤT CẢ refs
+    noMatchCountRef.current = 0;
+    bestFaceImageRef.current = null;
+    bestFaceQualityRef.current = 0;
+    
     // Reset các state liên quan đến face capture
     setIsNewCustomer(false);
     setCapturedImage(null);
