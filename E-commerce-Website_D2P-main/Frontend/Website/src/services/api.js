@@ -1,6 +1,17 @@
 import axios from 'axios'
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
+/**
+ * Lấy API URL đúng cách:
+ * - Development: sử dụng relative path '/api' để đi qua Vite proxy
+ * - Production: sử dụng VITE_API_URL từ .env
+ */
+export const getApiUrl = () => {
+  return import.meta.env.DEV 
+    ? '/api'  // Development: sử dụng Vite proxy
+    : (import.meta.env.VITE_API_URL || 'http://localhost:8000/api')  // Production
+}
+
+const API_URL = getApiUrl()
 
 const api = axios.create({
   baseURL: API_URL,

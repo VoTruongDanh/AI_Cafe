@@ -37,7 +37,7 @@ const AIPage = () => {
   const [suggestions, setSuggestions] = useState([])
   const [error, setError] = useState(null)
   const [minConfidence, setMinConfidence] = useState(0.6)
-  const [useLocation, setUseLocation] = useState(false)
+  const [useLocation, setUseLocation] = useState(true)
   const [locationLoading, setLocationLoading] = useState(false)
   const [locationInfo, setLocationInfo] = useState(null)
 
@@ -80,7 +80,7 @@ const AIPage = () => {
     }
   }
 
-  // Lấy nhiệt độ từ vị trí
+  // Lấy nhiệt độ từ vị trí (GPS)
   const fetchTemperatureFromLocation = async () => {
     if (!navigator.geolocation) {
       toast.error('Trình duyệt không hỗ trợ lấy vị trí')
@@ -123,7 +123,17 @@ const AIPage = () => {
           },
           (error) => {
             console.warn('High accuracy failed, trying low accuracy:', error)
-            // Nếu high accuracy thất bại, thử với low accuracy
+            
+            // Nếu lỗi là PERMISSION_DENIED hoặc POSITION_UNAVAILABLE, không thử lại
+            if (error.code === 1 || error.code === 2) {
+              if (!hasResolved) {
+                hasResolved = true
+                reject(error)
+              }
+              return
+            }
+            
+            // Chỉ thử lại với low accuracy nếu lỗi là TIMEOUT hoặc lỗi khác
             navigator.geolocation.getCurrentPosition(
               (pos) => {
                 if (!hasResolved) {
@@ -180,24 +190,70 @@ const AIPage = () => {
         switch (err.code) {
           case 1: // PERMISSION_DENIED
             toast.error('Người dùng đã từ chối cấp quyền vị trí. Vui lòng cấp quyền trong cài đặt trình duyệt.')
+            setUseLocation(false)
             break
           case 2: // POSITION_UNAVAILABLE
-            toast.error('Không thể xác định vị trí. Vui lòng kiểm tra kết nối GPS/WiFi.')
+            // Thử lấy nhiệt độ từ vị trí mặc định (fallback)
+            try {
+              console.log('GPS unavailable, trying default location...')
+              const defaultResponse = await api.get('/weather/temperature')
+              if (defaultResponse.data.success) {
+                const temp = defaultResponse.data.temperature
+                const city = defaultResponse.data.city || 'TP.HCM'
+                const isDefault = defaultResponse.data.is_default_location
+                
+                setTemperature(temp.toString())
+                
+                if (isDefault) {
+                  toast.info(`GPS không khả dụng. Đang dùng nhiệt độ ${city}: ${temp}°C`, {
+                    duration: 5000,
+                  })
+                } else {
+                  toast.success(`Đã lấy nhiệt độ tại ${city}: ${temp}°C`, {
+                    duration: 4000,
+                  })
+                }
+                
+                setLocationInfo({
+                  city: city,
+                  country: defaultResponse.data.country || 'Vietnam',
+                  description: defaultResponse.data.description || (isDefault ? 'Vị trí mặc định' : ''),
+                })
+                setUseLocation(false) // Tắt auto để tránh retry
+                return // Thành công, không cần hiển thị warning
+              }
+            } catch (fallbackErr) {
+              console.warn('Default location also failed:', fallbackErr)
+            }
+            
+            // Nếu fallback cũng thất bại, hiển thị warning
+            toast.warning('Không thể lấy vị trí GPS. Bạn có thể nhập nhiệt độ thủ công bên dưới.', {
+              duration: 5000,
+            })
+            setUseLocation(false)
             break
           case 3: // TIMEOUT
-            toast.error('Hết thời gian chờ lấy vị trí. Vui lòng thử lại.')
+            toast.warning('Hết thời gian chờ lấy vị trí. Bạn có thể nhập nhiệt độ thủ công.', {
+              duration: 5000,
+            })
+            // Không tắt useLocation, cho phép thử lại
             break
           default:
-            toast.error('Lỗi không xác định khi lấy vị trí')
+            toast.warning('Lỗi khi lấy vị trí. Bạn có thể nhập nhiệt độ thủ công.', {
+              duration: 5000,
+            })
+            setUseLocation(false)
         }
       } else if (err.response) {
         // Lỗi từ API
-        toast.error(err.response?.data?.message || 'Không thể lấy nhiệt độ từ API')
+        toast.error(err.response?.data?.message || 'Không thể lấy nhiệt độ từ vị trí. Vui lòng nhập thủ công.')
       } else {
-        // Lỗi khác
-        toast.error(err.message || 'Không thể lấy nhiệt độ từ vị trí')
+        // Lỗi khác (network, etc.)
+        toast.warning('Không thể kết nối để lấy nhiệt độ. Bạn có thể nhập nhiệt độ thủ công.', {
+          duration: 5000,
+        })
+        setUseLocation(false)
       }
-      setUseLocation(false)
     } finally {
       setLocationLoading(false)
     }
@@ -398,7 +454,7 @@ const AIPage = () => {
         {suggestions.length > 0 && (
           <Box>
             <Typography variant="h5" gutterBottom sx={{ mb: 3, fontWeight: 'bold' }}>
-              Gợi ý cho bạn ({suggestions.length} sản phẩm)
+              Gợi ý theo thời tiết ({suggestions.length} sản phẩm)
             </Typography>
             <Grid container spacing={3}>
               {suggestions.map((product) => (
@@ -556,7 +612,7 @@ const AIPage = () => {
           <Paper sx={{ p: 4, textAlign: 'center' }}>
             <Thermostat sx={{ fontSize: 64, color: '#ccc', mb: 2 }} />
             <Typography variant="h6" color="text.secondary">
-              Đang tải gợi ý...
+              Chưa có gợi ý theo thời tiết. Vui lòng nhập nhiệt độ để xem gợi ý.
             </Typography>
           </Paper>
         )}

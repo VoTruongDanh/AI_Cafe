@@ -56,7 +56,7 @@ return [
     ],
 
     'local_ai' => [
-        'url' => env('LOCAL_AI_URL', 'http://127.0.0.1:9009'),
+        'url' => env('LOCAL_AI_URL', 'https://127.0.0.1:9009'),
         'enabled' => env('LOCAL_AI_ENABLED', true),
     ],
 

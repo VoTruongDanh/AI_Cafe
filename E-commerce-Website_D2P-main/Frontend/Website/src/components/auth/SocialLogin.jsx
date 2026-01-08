@@ -2,7 +2,7 @@ import { Button, Box, Divider, Typography } from '@mui/material'
 import { Google, Facebook } from '@mui/icons-material'
 
 const SocialLogin = () => {
-  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
+  const API_URL = import.meta.env.DEV ? '/api' : (import.meta.env.VITE_API_URL || 'http://localhost:8000/api')
   
   // Check if OAuth is configured
   const isGoogleConfigured = import.meta.env.VITE_GOOGLE_OAUTH_ENABLED === 'true'

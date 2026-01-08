@@ -207,7 +207,8 @@ const ProductReviews = ({ productId, isAuthenticated, userId }) => {
           formData.append('image', file)
           
           try {
-            const response = await fetch('http://localhost:8000/api/upload-image', {
+            const uploadUrl = import.meta.env.DEV ? '/api/upload-image' : (import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:8000') + '/api/upload-image'
+            const response = await fetch(uploadUrl, {
               method: 'POST',
               body: formData,
               headers: {

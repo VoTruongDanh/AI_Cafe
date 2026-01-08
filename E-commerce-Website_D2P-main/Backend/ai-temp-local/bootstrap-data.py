@@ -9,15 +9,24 @@ from pathlib import Path
 
 # Fix encoding cho Windows console
 if sys.platform == 'win32':
-    import codecs
-    sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'strict')
-    sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'strict')
+    try:
+        import codecs
+        if hasattr(sys.stdout, 'buffer'):
+            sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'strict')
+        if hasattr(sys.stderr, 'buffer'):
+            sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'strict')
+    except Exception:
+        pass  # Ignore encoding errors
 
-# URL của AI service
-AI_SERVICE_URL = "http://127.0.0.1:9009"
+# URL của AI service (HTTPS)
+AI_SERVICE_URL = "https://127.0.0.1:9009"
 
-# URL của Laravel API (cần điều chỉnh nếu khác)
-LARAVEL_API_URL = "http://127.0.0.1:8000/api/products/classify-temperature"
+# URL của Laravel API
+# Thử IPv4 trước, nếu không được thì thử localhost (IPv6)
+LARAVEL_API_URLS = [
+    "http://127.0.0.1:8000/api/products/classify-temperature",
+    "http://localhost:8000/api/products/classify-temperature"
+]
 
 def normalize_vi(s: str) -> str:
     """Chuẩn hóa text tiếng Việt"""
@@ -95,6 +104,8 @@ def classify_rule_based(name: str, category_name: str = None) -> dict:
 def collect_sample(name: str, category_name: str, label: str, source: str, confidence: float):
     """Gửi mẫu đến AI service /collect"""
     try:
+        import urllib3
+        urllib3.disable_warnings()
         response = requests.post(
             f"{AI_SERVICE_URL}/collect",
             json={
@@ -104,7 +115,8 @@ def collect_sample(name: str, category_name: str, label: str, source: str, confi
                 'source': source,
                 'confidence': confidence
             },
-            timeout=2
+            timeout=2,
+            verify=False
         )
         return response.status_code == 200
     except Exception as e:
@@ -115,43 +127,60 @@ def bootstrap_from_laravel_api():
     """Lấy sản phẩm từ Laravel API và thu thập mẫu"""
     print("[...] Dang lay san pham tu Laravel API...")
     
-    try:
-        response = requests.get(LARAVEL_API_URL, params={'limit': 1000}, timeout=10)
-        if response.status_code != 200:
-            print(f"[ERROR] Loi khi goi Laravel API: {response.status_code}")
-            return 0
-        
-        data = response.json()
-        if not data.get('success'):
-            print(f"[ERROR] API tra ve loi: {data.get('message', 'Unknown error')}")
-            return 0
-        
-        products = data.get('data', [])
-        print(f"[OK] Lay duoc {len(products)} san pham")
-        
-        collected = 0
-        for product in products:
-            name = product.get('name', '')
-            category_name = product.get('categoryName', '')
+    # Thử cả IPv4 và IPv6
+    for LARAVEL_API_URL in LARAVEL_API_URLS:
+        try:
+            print(f"[INFO] Thu ket noi den: {LARAVEL_API_URL}")
+            response = requests.get(LARAVEL_API_URL, params={'limit': 1000}, timeout=10)
+            if response.status_code != 200:
+                print(f"[WARNING] Status code: {response.status_code}, thu URL tiep theo...")
+                continue
             
-            # Phân loại bằng rule-based
-            classification = classify_rule_based(name, category_name)
+            data = response.json()
+            if not data.get('success'):
+                print(f"[WARNING] API tra ve loi: {data.get('message', 'Unknown error')}, thu URL tiep theo...")
+                continue
             
-            # Chỉ thu thập mẫu có nhãn chắc chắn (confidence >= 0.8)
-            if classification['confidence'] >= 0.8 and classification['temperature'] in ['HOT', 'COLD']:
-                label = classification['temperature']
-                source = classification['source']
-                confidence = classification['confidence']
+            products = data.get('data', [])
+            print(f"[OK] Lay duoc {len(products)} san pham tu {LARAVEL_API_URL}")
+            
+            collected = 0
+            for product in products:
+                name = product.get('name', '')
+                category_name = product.get('categoryName', '')
                 
-                if collect_sample(name, category_name, label, source, confidence):
-                    collected += 1
-                    print(f"  [OK] [{collected}] {name} -> {label} (confidence: {confidence:.2f})")
-        
-        return collected
-        
-    except Exception as e:
-        print(f"[ERROR] Loi: {e}")
-        return 0
+                # Phân loại bằng rule-based
+                classification = classify_rule_based(name, category_name)
+                
+                # Chỉ thu thập mẫu có nhãn chắc chắn (confidence >= 0.8)
+                if classification['confidence'] >= 0.8 and classification['temperature'] in ['HOT', 'COLD']:
+                    label = classification['temperature']
+                    source = classification['source']
+                    confidence = classification['confidence']
+                    
+                    if collect_sample(name, category_name, label, source, confidence):
+                        collected += 1
+                        print(f"  [OK] [{collected}] {name} -> {label} (confidence: {confidence:.2f})")
+            
+            return collected
+            
+        except requests.exceptions.ConnectionError as e:
+            print(f"[WARNING] Khong the ket noi den {LARAVEL_API_URL}")
+            print(f"   Chi tiet: {e}")
+            # Thử URL tiếp theo
+            continue
+        except Exception as e:
+            print(f"[WARNING] Loi khi ket noi den {LARAVEL_API_URL}: {e}")
+            # Thử URL tiếp theo
+            continue
+    
+    # Nếu đến đây thì không URL nào hoạt động
+    print(f"[ERROR] Khong the ket noi den Laravel API qua ca IPv4 va IPv6!")
+    print(f"   [INFO] Kiem tra:")
+    print(f"   - Laravel API co dang chay khong?")
+    print(f"   - Chay: cd .. && php artisan serve --host=127.0.0.1 --port=8000")
+    print(f"   - Hoac: restart-laravel.bat")
+    return 0
 
 def bootstrap_from_file(file_path: str = "sample_products.json"):
     """Thu thập mẫu từ file JSON (nếu có)"""
@@ -193,15 +222,18 @@ def main():
     
     # Kiểm tra AI service có chạy không
     try:
-        response = requests.get(f"{AI_SERVICE_URL}/docs", timeout=2)
+        import urllib3
+        urllib3.disable_warnings()
+        response = requests.get(f"{AI_SERVICE_URL}/docs", timeout=2, verify=False)
         if response.status_code != 200:
             print(f"[!] AI Service co ve khong chay tai {AI_SERVICE_URL}")
-            print("   Hay chay: uvicorn api:app --host 127.0.0.1 --port 9009")
-            return
-    except:
+            print("   Hay chay: 1-start-ai-service.bat")
+            return 1
+    except Exception as e:
         print(f"[!] Khong the ket noi den AI Service tai {AI_SERVICE_URL}")
-        print("   Hay chay: uvicorn api:app --host 127.0.0.1 --port 9009")
-        return
+        print(f"   Loi: {e}")
+        print("   Hay chay: 1-start-ai-service.bat")
+        return 1
     
     print("[OK] AI Service dang chay")
     print()
@@ -211,12 +243,31 @@ def main():
     
     print()
     print("=" * 60)
+    if collected == 0:
+        print(f"[ERROR] Khong thu thap duoc mau nao!")
+        print("[INFO] Kiem tra lai:")
+        print("   - Laravel API co dang chay khong? (http://127.0.0.1:8000)")
+        print("   - Endpoint co dung khong? (/api/products/classify-temperature)")
+        return 1
     print(f"[OK] Da thu thap {collected} mau")
     print()
     print("Buoc tiep theo:")
     print("   1. Chay: python train.py")
     print("   2. Sau do: curl -X POST http://127.0.0.1:9009/reload-model")
     print("=" * 60)
+    return 0
 
 if __name__ == "__main__":
-    main()
+    try:
+        exit_code = main()
+        if exit_code is None:
+            exit_code = 0
+        sys.exit(exit_code)
+    except KeyboardInterrupt:
+        print("\n[!] Bi huy boi nguoi dung (Ctrl+C)")
+        sys.exit(1)
+    except Exception as e:
+        print(f"\n[ERROR] Loi khi bootstrap: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)

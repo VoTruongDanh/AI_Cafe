@@ -135,8 +135,11 @@ export const getImageUrl = (path) => {
   }
   
   // Get API URL from env
-  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
-  const baseUrl = apiUrl.replace('/api', '')
+  // Trong development, sử dụng relative path để đi qua Vite proxy
+  const apiUrl = import.meta.env.DEV 
+    ? '/api'  // Development: sử dụng Vite proxy
+    : (import.meta.env.VITE_API_URL || 'http://localhost:8000/api')  // Production
+  const baseUrl = apiUrl.replace('/api', '') || (import.meta.env.DEV ? '' : 'http://localhost:8000')
   
   // Add base URL to relative path
   return `${baseUrl}${path.startsWith('/') ? path : '/' + path}`

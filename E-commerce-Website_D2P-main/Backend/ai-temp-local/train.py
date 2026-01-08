@@ -9,9 +9,14 @@ from sklearn.pipeline import Pipeline
 
 # Fix encoding cho Windows console
 if sys.platform == 'win32':
-    import codecs
-    sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'strict')
-    sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'strict')
+    try:
+        import codecs
+        if hasattr(sys.stdout, 'buffer'):
+            sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'strict')
+        if hasattr(sys.stderr, 'buffer'):
+            sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'strict')
+    except Exception:
+        pass  # Ignore encoding errors
 
 DATASET_PATH = Path("dataset.jsonl")
 MODEL_PATH = Path("model.joblib")
@@ -108,7 +113,7 @@ def main():
     if len(X) < 10:
         print(f"[!] Chua du mau co nhan HOT/COLD de train (hien {len(X)}). Can toi thieu 10 mau.")
         print("[TIP] Hay thu thap them du lieu bang cach goi /collect voi label HOT hoac COLD.")
-        return
+        sys.exit(1)
 
     print(f"[INFO] Training voi {len(X)} mau...")
     print(f"   - HOT: {y.count('HOT')} mau")
@@ -138,4 +143,13 @@ def main():
     print(f"[INFO] Training accuracy: {score:.2%}")
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n[!] Bi huy boi nguoi dung (Ctrl+C)")
+        sys.exit(1)
+    except Exception as e:
+        print(f"\n[ERROR] Loi khi train model: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)

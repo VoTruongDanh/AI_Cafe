@@ -4,8 +4,8 @@ import path from 'path'
 import fs from 'fs'
 
 // Kiểm tra certificates có tồn tại không
-const certPath = path.resolve(__dirname, '../Backend/certificates/localhost.pem')
-const keyPath = path.resolve(__dirname, '../Backend/certificates/localhost-key.pem')
+const certPath = path.resolve(__dirname, '../../Backend/certificates/localhost.pem')
+const keyPath = path.resolve(__dirname, '../../Backend/certificates/localhost-key.pem')
 const hasCertificates = fs.existsSync(certPath) && fs.existsSync(keyPath)
 
 export default defineConfig({
@@ -18,7 +18,8 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
-    allowedHosts: ['.trycloudflare.com', '.loca.lt', 'localhost'],
+    // Cho phep tat ca hosts de truy cap tu LAN
+    allowedHosts: 'all',
     // Enable HTTPS nếu có certificates
     ...(hasCertificates && {
       https: {
@@ -28,9 +29,9 @@ export default defineConfig({
     }),
     proxy: {
       '/api': {
-        target: hasCertificates ? 'https://localhost:8000' : 'http://localhost:8000',
+        target: 'http://localhost:8000', // Backend chạy HTTP (artisan serve không hỗ trợ HTTPS)
         changeOrigin: true,
-        secure: false, // Cho phép self-signed certificates
+        secure: false,
       },
     },
   },

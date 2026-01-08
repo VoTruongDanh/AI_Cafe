@@ -96,6 +96,7 @@ class LocalAITemperatureClassifier
 
         try {
             Http::timeout(2)
+                ->withoutVerifying() // Bỏ qua xác thực SSL cho self-signed certificate
                 ->post($this->aiServiceUrl . '/collect', [
                     'name' => $name,
                     'categoryName' => $categoryName,
@@ -122,6 +123,7 @@ class LocalAITemperatureClassifier
 
         try {
             $response = Http::timeout(3)
+                ->withoutVerifying() // Bỏ qua xác thực SSL cho self-signed certificate
                 ->post($this->aiServiceUrl . '/predict', [
                     'items' => [
                         [
@@ -239,6 +241,7 @@ class LocalAITemperatureClassifier
     {
         try {
             $response = Http::timeout(5)
+                ->withoutVerifying() // Bỏ qua xác thực SSL cho self-signed certificate
                 ->post($this->aiServiceUrl . '/predict', [
                     'items' => $items
                 ]);

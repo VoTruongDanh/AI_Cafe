@@ -91,7 +91,7 @@ const Register = () => {
 
   // Fetch provinces on mount
   useEffect(() => {
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
+    const API_URL = import.meta.env.DEV ? '/api' : (import.meta.env.VITE_API_URL || 'http://localhost:8000/api')
     fetch(`${API_URL}/address/provinces`)
       .then(res => res.json())
       .then(data => {
@@ -114,7 +114,7 @@ const Register = () => {
     
     if (provinceCode) {
       try {
-        const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
+        const API_URL = import.meta.env.DEV ? '/api' : (import.meta.env.VITE_API_URL || 'http://localhost:8000/api')
         const res = await fetch(`${API_URL}/address/provinces/${provinceCode}/communes`)
         const data = await res.json()
         setCommunes(Array.isArray(data) ? data : [])

@@ -117,7 +117,7 @@ const Checkout = () => {
     dispatch(fetchCart())
     
     // Fetch provinces from Backend proxy (avoid CORS)
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
+    const API_URL = import.meta.env.DEV ? '/api' : (import.meta.env.VITE_API_URL || 'http://localhost:8000/api')
     fetch(`${API_URL}/address/provinces`)
       .then(res => res.json())
       .then(data => {
@@ -229,7 +229,7 @@ const Checkout = () => {
     if (provinceCode) {
       try {
         // Load danh sách xã/phường từ tỉnh (Backend proxy)
-        const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
+        const API_URL = import.meta.env.DEV ? '/api' : (import.meta.env.VITE_API_URL || 'http://localhost:8000/api')
         const res = await fetch(`${API_URL}/address/provinces/${provinceCode}/communes`)
         const data = await res.json()
         console.log('Communes loaded:', data)

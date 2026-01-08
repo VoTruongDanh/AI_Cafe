@@ -32,8 +32,8 @@ import {
 } from '@mui/icons-material'
 import { motion, AnimatePresence } from 'framer-motion'
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
-const BASE_URL = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:8000'
+const API_URL = import.meta.env.DEV ? '/api' : (import.meta.env.VITE_API_URL || 'http://localhost:8000/api')
+const BASE_URL = import.meta.env.DEV ? '' : (import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:8000')
 
 const AIChatBot = () => {
   const navigate = useNavigate()
