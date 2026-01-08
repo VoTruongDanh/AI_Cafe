@@ -79,6 +79,10 @@ const AICustomIcon = () => (
   <PsychologyIcon sx={{ fontSize: 24 }} />
 )
 
+const FaceRecognitionIcon = () => (
+  <img src="/admin/icon/icon_face_recognition.png" alt="Nhận diện" style={{ width: 24, height: 24 }} onError={(e) => { e.target.style.display = 'none'; e.target.nextSibling && (e.target.nextSibling.style.display = 'block'); }} />
+)
+
 const menuItems = [
   { text: 'Dashboard', icon: DashboardCustomIcon, path: 'dashboard' },
   { text: 'Sản phẩm', icon: ProductCustomIcon, path: 'products' },
@@ -89,6 +93,7 @@ const menuItems = [
   { text: 'Tồn kho', icon: InventoryCustomIcon, path: 'inventory' },
   { text: 'Phân tích', icon: AnalyticsCustomIcon, path: 'analytics' },
   { text: 'AI Phân Loại', icon: AICustomIcon, path: 'ai-classification' },
+  { text: 'Nhận diện KH', icon: PeopleIcon, path: 'face-recognition' },
 ]
 
 const AdminLayout = () => {

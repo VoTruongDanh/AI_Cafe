@@ -27,6 +27,7 @@ use App\Http\Controllers\Api\ContactController;
 use App\Http\Controllers\Api\RecentlyViewedController;
 use App\Http\Controllers\Api\ProductTemperatureController;
 use App\Http\Controllers\Api\WeatherController;
+use App\Http\Controllers\Api\FaceRecognitionController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -235,6 +236,7 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role.admin'])->group(functi
     Route::post('users/{user}/deactivate', [AdminUserController::class, 'deactivate']);
     Route::post('users/{user}/activate', [AdminUserController::class, 'activate']);
     Route::put('users/{user}/reset-password', [AdminUserController::class, 'resetPassword']);
+    Route::post('users/{user}/upload-avatar', [AdminUserController::class, 'uploadAvatarBase64']);
 
     // Categories (Admin)
     Route::get('categories', [CategoryController::class, 'index']);
@@ -279,6 +281,13 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role.admin'])->group(functi
     Route::get('contacts/{id}', [ContactController::class, 'show']);
     Route::put('contacts/{id}/status', [ContactController::class, 'updateStatus']);
     Route::delete('contacts/{id}', [ContactController::class, 'destroy']);
+
+    // Face Recognition (Admin)
+    Route::prefix('face')->group(function () {
+        Route::get('status', [FaceRecognitionController::class, 'checkStatus']);
+        Route::get('customers', [FaceRecognitionController::class, 'getCustomersWithAvatar']);
+        Route::post('recognize', [FaceRecognitionController::class, 'recognize']);
+    });
 });
 
 // Authenticated routes for reviews and questions

@@ -2,13 +2,39 @@ import json
 import re
 import unicodedata
 import datetime
+import base64
+import tempfile
+import os
 from pathlib import Path
 from typing import Optional, List
 
 import joblib
+import requests
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+
+# DeepFace import và preload model
+DEEPFACE_AVAILABLE = False
+FACE_MODEL_LOADED = False
+
+try:
+    from deepface import DeepFace
+    DEEPFACE_AVAILABLE = True
+    print("[INFO] DeepFace imported successfully")
+    
+    # Preload model khi khởi động để tránh chậm lần đầu
+    print("[INFO] Preloading Facenet model (this may take a moment)...")
+    try:
+        DeepFace.build_model("Facenet")
+        FACE_MODEL_LOADED = True
+        print("[INFO] Facenet model preloaded successfully!")
+    except Exception as e:
+        print(f"[WARNING] Could not preload model: {e}")
+        
+except ImportError:
+    print("[WARNING] DeepFace not installed. Face recognition will not be available.")
+    print("[TIP] Run: pip install deepface tensorflow")
 
 DATASET_PATH = Path("dataset.jsonl")
 MODEL_PATH = Path("model.joblib")
@@ -191,10 +217,12 @@ class PredictRequest(BaseModel):
 @app.get("/")
 def root():
     return {
-        "service": "Local AI Temperature Classifier",
+        "service": "Local AI Temperature Classifier + Face Recognition",
         "status": "running",
         "hasModel": MODEL is not None,
-        "endpoints": ["/collect", "/predict", "/reload-model", "/stats"]
+        "deepface_available": DEEPFACE_AVAILABLE,
+        "face_model_loaded": FACE_MODEL_LOADED,
+        "endpoints": ["/collect", "/predict", "/reload-model", "/stats", "/face/status", "/face/recognize"]
     }
 
 @app.get("/stats")
@@ -342,6 +370,268 @@ def reload_model():
         "hasModel": MODEL is not None,
         "message": "Model reloaded" if MODEL else "No model found"
     }
+
+
+# =============================================================================
+# FACE RECOGNITION ENDPOINTS
+# =============================================================================
+
+class CustomerFace(BaseModel):
+    id: int
+    name: str
+    avatar_url: Optional[str] = None
+    avatar_path: Optional[str] = None  # Đường dẫn file local (relative)
+
+class FaceRecognizeRequest(BaseModel):
+    image_base64: str
+    customers: List[CustomerFace]
+
+# Đường dẫn đến thư mục public của Laravel
+LARAVEL_PUBLIC_PATH = Path(__file__).parent.parent / "public"
+print(f"[INFO] Laravel public path: {LARAVEL_PUBLIC_PATH}")
+print(f"[INFO] Public path exists: {LARAVEL_PUBLIC_PATH.exists()}")
+
+def save_base64_image(base64_str: str, prefix: str = "face") -> str:
+    """Lưu ảnh base64 thành file tạm và trả về đường dẫn"""
+    # Xử lý base64 string
+    if base64_str.startswith('data:image'):
+        # Remove data URL prefix
+        base64_str = base64_str.split(',')[1]
+    
+    image_data = base64.b64decode(base64_str)
+    
+    # Tạo file tạm
+    fd, temp_path = tempfile.mkstemp(suffix='.jpg', prefix=prefix + '_')
+    os.close(fd)
+    
+    with open(temp_path, 'wb') as f:
+        f.write(image_data)
+    
+    return temp_path
+
+def get_avatar_path(avatar_url: Optional[str] = None, avatar_path: Optional[str] = None) -> Optional[str]:
+    """Lấy đường dẫn file avatar - ưu tiên đọc từ disk"""
+    print(f"[DEBUG] get_avatar_path called with avatar_url={avatar_url}, avatar_path={avatar_path}")
+    
+    # Nếu có avatar_path (đường dẫn relative), đọc trực tiếp từ disk
+    if avatar_path:
+        # avatar_path dạng: /uploads/avatars/xxx.jpg hoặc uploads/avatars/xxx.jpg
+        clean_path = avatar_path.lstrip('/').lstrip('\\')
+        local_path = LARAVEL_PUBLIC_PATH / clean_path
+        print(f"[DEBUG] Trying local path: {local_path}")
+        
+        if local_path.exists():
+            print(f"[INFO] Found avatar at: {local_path}")
+            return str(local_path)
+        else:
+            print(f"[WARNING] Avatar not found at: {local_path}")
+    
+    # Thử extract path từ URL và đọc từ disk
+    if avatar_url:
+        # URL dạng: http://xxx/uploads/avatars/xxx.jpg hoặc /uploads/avatars/xxx.jpg
+        import re
+        match = re.search(r'[/\\]?(uploads[/\\]avatars[/\\][^?]+)', avatar_url)
+        if match:
+            relative_path = match.group(1).replace('\\', '/')
+            local_path = LARAVEL_PUBLIC_PATH / relative_path
+            print(f"[DEBUG] Trying from URL, local path: {local_path}")
+            
+            if local_path.exists():
+                print(f"[INFO] Found avatar at: {local_path}")
+                return str(local_path)
+            else:
+                print(f"[WARNING] Avatar from URL not found at: {local_path}")
+        
+        # Fallback: download từ URL (có thể chậm hoặc fail)
+        print(f"[INFO] Falling back to download from URL: {avatar_url}")
+        return download_image(avatar_url)
+    
+    print(f"[WARNING] No avatar_url or avatar_path provided")
+    return None
+
+def download_image(url: str) -> str:
+    """Download ảnh từ URL và lưu thành file tạm (fallback)"""
+    try:
+        print(f"[INFO] Downloading image from: {url}")
+        response = requests.get(url, timeout=10, verify=False)
+        if response.status_code == 200:
+            fd, temp_path = tempfile.mkstemp(suffix='.jpg', prefix='avatar_')
+            os.close(fd)
+            with open(temp_path, 'wb') as f:
+                f.write(response.content)
+            return temp_path
+    except Exception as e:
+        print(f"[ERROR] Download image failed: {e}")
+    return None
+
+@app.get("/face/status")
+def face_status():
+    """Kiểm tra trạng thái Face Recognition service"""
+    return {
+        "service": "Face Recognition",
+        "deepface_ready": DEEPFACE_AVAILABLE,
+        "model_loaded": FACE_MODEL_LOADED,
+        "message": "DeepFace ready, model loaded" if FACE_MODEL_LOADED else ("DeepFace ready" if DEEPFACE_AVAILABLE else "DeepFace not installed")
+    }
+
+@app.post("/face/recognize")
+def face_recognize(req: FaceRecognizeRequest):
+    """Nhận diện khuôn mặt từ ảnh camera và so sánh với database khách hàng"""
+    if not DEEPFACE_AVAILABLE:
+        return {
+            "matched": False,
+            "message": "DeepFace chưa được cài đặt. Vui lòng chạy: pip install deepface tensorflow"
+        }
+    
+    temp_files = []
+    
+    try:
+        # Lưu ảnh camera thành file tạm
+        camera_image_path = save_base64_image(req.image_base64, "camera")
+        temp_files.append(camera_image_path)
+        
+        best_match = None
+        best_distance = float('inf')
+        threshold = 0.4  # Ngưỡng cho Facenet + cosine (khắt khe hơn để chính xác)
+        
+        print(f"[INFO] Camera image saved: {camera_image_path}")
+        print(f"[INFO] Processing {len(req.customers)} customers...")
+        
+        for customer in req.customers:
+            try:
+                # Lấy đường dẫn avatar (ưu tiên đọc từ disk)
+                avatar_file_path = get_avatar_path(customer.avatar_url, customer.avatar_path)
+                if not avatar_file_path:
+                    print(f"[WARNING] No avatar found for customer {customer.id}: {customer.name}")
+                    continue
+                
+                # Nếu là file tạm (từ download), thêm vào danh sách để xóa sau
+                if str(avatar_file_path).startswith(str(tempfile.gettempdir())):
+                    temp_files.append(avatar_file_path)
+                
+                print(f"[INFO] Comparing with customer {customer.id}: {customer.name} (avatar: {avatar_file_path})")
+                
+                # So sánh khuôn mặt với DeepFace (tối ưu tốc độ)
+                result = DeepFace.verify(
+                    img1_path=camera_image_path,
+                    img2_path=avatar_file_path,
+                    model_name="Facenet",  # Nhanh hơn Facenet512, vẫn chính xác
+                    detector_backend="opencv",  # Nhanh nhất, đủ tốt cho indoor
+                    distance_metric="cosine",
+                    enforce_detection=False  # Không báo lỗi nếu không tìm thấy khuôn mặt
+                )
+                
+                distance = result.get('distance', 1.0)
+                verified = result.get('verified', False)
+                
+                print(f"[DEBUG] Customer {customer.name}: distance={distance}, verified={verified}")
+                
+                if distance < best_distance:
+                    best_distance = distance
+                    if verified or distance < threshold:
+                        best_match = {
+                            "customer_id": customer.id,
+                            "customer_name": customer.name,
+                            "distance": distance,
+                            "confidence": max(0, min(100, (1 - distance) * 100))
+                        }
+                        
+            except Exception as e:
+                print(f"[WARNING] Error comparing with customer {customer.id}: {e}")
+                continue
+        
+        # Dọn dẹp file tạm
+        for temp_file in temp_files:
+            try:
+                if os.path.exists(temp_file):
+                    os.remove(temp_file)
+            except:
+                pass
+        
+        if best_match:
+            print(f"[SUCCESS] Found match: {best_match['customer_name']} (confidence: {best_match['confidence']:.1f}%)")
+            return {
+                "matched": True,
+                "customer_id": best_match["customer_id"],
+                "confidence": round(best_match["confidence"], 2),
+                "distance": round(best_match["distance"], 4),
+                "message": f"Đã nhận diện: {best_match['customer_name']}"
+            }
+        
+        print(f"[INFO] No match found. Best distance: {best_distance:.4f}" if best_distance < float('inf') else "[INFO] No customers to compare")
+        return {
+            "matched": False,
+            "message": "Không tìm thấy khách hàng phù hợp trong hệ thống",
+            "best_distance": round(best_distance, 4) if best_distance < float('inf') else None
+        }
+        
+    except Exception as e:
+        print(f"[ERROR] Recognition error: {e}")
+        import traceback
+        traceback.print_exc()
+        # Dọn dẹp file tạm khi có lỗi
+        for temp_file in temp_files:
+            try:
+                if os.path.exists(temp_file):
+                    os.remove(temp_file)
+            except:
+                pass
+        
+        return {
+            "matched": False,
+            "message": f"Lỗi nhận diện: {str(e)}"
+        }
+
+@app.post("/face/verify")
+def face_verify_single(image1_base64: str, image2_base64: str):
+    """So sánh 2 ảnh xem có phải cùng 1 người không"""
+    if not DEEPFACE_AVAILABLE:
+        return {
+            "verified": False,
+            "message": "DeepFace chưa được cài đặt"
+        }
+    
+    temp_files = []
+    
+    try:
+        img1_path = save_base64_image(image1_base64, "img1")
+        img2_path = save_base64_image(image2_base64, "img2")
+        temp_files.extend([img1_path, img2_path])
+        
+        result = DeepFace.verify(
+            img1_path=img1_path,
+            img2_path=img2_path,
+            model_name="Facenet",  # Nhanh hơn
+            detector_backend="opencv",  # Nhanh nhất
+            distance_metric="cosine",
+            enforce_detection=False
+        )
+        
+        # Dọn dẹp
+        for temp_file in temp_files:
+            try:
+                os.remove(temp_file)
+            except:
+                pass
+        
+        return {
+            "verified": result.get('verified', False),
+            "distance": round(result.get('distance', 1.0), 4),
+            "confidence": round(max(0, (1 - result.get('distance', 1.0)) * 100), 2),
+            "threshold": result.get('threshold', 0.4)
+        }
+        
+    except Exception as e:
+        for temp_file in temp_files:
+            try:
+                os.remove(temp_file)
+            except:
+                pass
+        return {
+            "verified": False,
+            "message": f"Lỗi: {str(e)}"
+        }
+
 
 if __name__ == "__main__":
     import uvicorn

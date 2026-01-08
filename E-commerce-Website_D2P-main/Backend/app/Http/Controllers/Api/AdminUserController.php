@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 use OpenApi\Annotations as OA;
 
 class AdminUserController extends \App\Http\Controllers\Controller
@@ -86,9 +87,16 @@ class AdminUserController extends \App\Http\Controllers\Controller
             'city' => ['nullable', 'string'],
             'district' => ['nullable', 'string'],
             'is_active' => ['boolean'],
+            'avatar' => ['nullable', 'image', 'max:5120'], // Max 5MB
         ], [
             'email.unique' => 'Email đã tồn tại trong hệ thống.',
         ]);
+
+        // Xử lý upload avatar
+        if ($request->hasFile('avatar')) {
+            $avatarPath = $this->uploadAvatar($request->file('avatar'));
+            $data['avatar'] = $avatarPath;
+        }
 
         $data['password'] = Hash::make($data['password']);
         $user = User::create($data);
@@ -125,7 +133,21 @@ class AdminUserController extends \App\Http\Controllers\Controller
             'city' => ['nullable', 'string'],
             'district' => ['nullable', 'string'],
             'is_active' => ['boolean'],
+            'avatar' => ['nullable', 'image', 'max:5120'], // Max 5MB
         ]);
+
+        // Xử lý upload avatar
+        if ($request->hasFile('avatar')) {
+            // Xóa avatar cũ nếu có
+            if ($user->avatar) {
+                $oldPath = public_path($user->avatar);
+                if (file_exists($oldPath)) {
+                    unlink($oldPath);
+                }
+            }
+            $avatarPath = $this->uploadAvatar($request->file('avatar'));
+            $data['avatar'] = $avatarPath;
+        }
 
         if (isset($data['password'])) {
             $data['password'] = Hash::make($data['password']);
@@ -137,6 +159,89 @@ class AdminUserController extends \App\Http\Controllers\Controller
         event(new \App\Events\UserUpdated($user));
 
         return response()->json($user);
+    }
+
+    /**
+     * Upload avatar và trả về đường dẫn
+     */
+    protected function uploadAvatar($file): string
+    {
+        $filename = 'avatar_' . time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension();
+        $destinationPath = public_path('uploads/avatars');
+        
+        if (!file_exists($destinationPath)) {
+            mkdir($destinationPath, 0755, true);
+        }
+        
+        $file->move($destinationPath, $filename);
+        
+        return '/uploads/avatars/' . $filename;
+    }
+
+    /**
+     * Upload avatar từ base64 (chụp từ camera)
+     * 
+     * @OA\Post(
+     *     path="/admin/users/{id}/upload-avatar",
+     *     tags={"Admin"},
+     *     summary="Upload avatar từ base64 hoặc file",
+     *     security={{"sanctum":{}}},
+     *     @OA\Parameter(name="id", in="path", required=true, @OA\Schema(type="integer")),
+     *     @OA\RequestBody(required=true, @OA\JsonContent(
+     *         @OA\Property(property="avatar_base64", type="string", description="Ảnh base64")
+     *     )),
+     *     @OA\Response(response=200, description="Upload thành công"),
+     *     @OA\Response(response=400, description="Dữ liệu không hợp lệ")
+     * )
+     */
+    public function uploadAvatarBase64(Request $request, User $user)
+    {
+        $this->ensureAdmin($request);
+
+        $request->validate([
+            'avatar_base64' => ['required', 'string'],
+        ]);
+
+        $base64 = $request->input('avatar_base64');
+        
+        // Xử lý base64 string
+        if (preg_match('/^data:image\/(\w+);base64,/', $base64, $matches)) {
+            $extension = $matches[1];
+            $base64 = substr($base64, strpos($base64, ',') + 1);
+        } else {
+            $extension = 'png';
+        }
+
+        $imageData = base64_decode($base64);
+        if ($imageData === false) {
+            return response()->json(['message' => 'Dữ liệu ảnh không hợp lệ'], 400);
+        }
+
+        $filename = 'avatar_' . time() . '_' . uniqid() . '.' . $extension;
+        $destinationPath = public_path('uploads/avatars');
+        
+        if (!file_exists($destinationPath)) {
+            mkdir($destinationPath, 0755, true);
+        }
+
+        // Xóa avatar cũ nếu có
+        if ($user->avatar) {
+            $oldPath = public_path($user->avatar);
+            if (file_exists($oldPath)) {
+                unlink($oldPath);
+            }
+        }
+
+        file_put_contents($destinationPath . '/' . $filename, $imageData);
+        
+        $avatarPath = '/uploads/avatars/' . $filename;
+        $user->update(['avatar' => $avatarPath]);
+
+        return response()->json([
+            'message' => 'Upload avatar thành công',
+            'avatar' => $avatarPath,
+            'user' => $user
+        ]);
     }
 
     /**

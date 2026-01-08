@@ -280,6 +280,14 @@ export const adminUsersApi = {
   create: (data) => api.post('/admin/users', data),
   update: (id, data) => api.put(`/admin/users/${id}`, data),
   delete: (id) => api.delete(`/admin/users/${id}`),
+  uploadAvatar: (id, data) => api.post(`/admin/users/${id}/upload-avatar`, data),
+}
+
+// Face Recognition API
+export const faceRecognitionApi = {
+  checkStatus: () => api.get('/admin/face/status'),
+  getCustomers: () => api.get('/admin/face/customers'),
+  recognize: (imageBase64) => api.post('/admin/face/recognize', { image_base64: imageBase64 }),
 }
 
 // Admin Categories API

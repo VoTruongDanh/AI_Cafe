@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useForm } from 'react-hook-form';
 import { yupResolver } from '@hookform/resolvers/yup';
@@ -24,6 +24,8 @@ import {
   Alert,
   Tab,
   Tabs,
+  Stack,
+  CircularProgress,
 } from '@mui/material';
 import { DataGrid } from '@mui/x-data-grid';
 import {
@@ -33,6 +35,9 @@ import {
   Search as SearchIcon,
   Block as BlockIcon,
   CheckCircle as ActiveIcon,
+  CameraAlt as CameraIcon,
+  CloudUpload as UploadIcon,
+  Close as CloseIcon,
 } from '@mui/icons-material';
 import { toast } from 'react-toastify';
 import AdminPageLayout from '../../components/admin/AdminPageLayout';
@@ -73,6 +78,31 @@ const Users = () => {
   // ✅ Duplicate validation state
   const [emailWarning, setEmailWarning] = useState('');
   const [phoneWarning, setPhoneWarning] = useState('');
+  
+  // ✅ Avatar upload state
+  const [avatarPreview, setAvatarPreview] = useState(null);
+  const [avatarFile, setAvatarFile] = useState(null);
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [shouldDeleteAvatar, setShouldDeleteAvatar] = useState(false); // Flag xóa avatar
+  const [originalAvatar, setOriginalAvatar] = useState(null); // Avatar gốc từ DB
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
+  const streamRef = useRef(null);
+  const fileInputRef = useRef(null);
+
+  // Helper để tạo URL cho static files (avatar, images)
+  const getStaticFileUrl = useCallback((path) => {
+    if (!path) return null;
+    if (path.startsWith('http')) return path;
+    if (path.startsWith('data:')) return path;
+    // Development: dùng backend URL trực tiếp
+    // path dạng: /uploads/avatars/xxx.jpg
+    const backendUrl = import.meta.env.DEV 
+      ? 'http://127.0.0.1:8000'  // Development backend
+      : (import.meta.env.VITE_API_URL?.replace('/api', '') || '');
+    return `${backendUrl}${path.startsWith('/') ? '' : '/'}${path}`;
+  }, []);
 
   const { control, handleSubmit, reset, setError } = useForm({
     resolver: yupResolver(userSchema),
@@ -222,6 +252,12 @@ const Users = () => {
   const handleOpenDialog = (user = null) => {
     if (user) {
       setSelectedUser(user);
+      // ✅ Load existing avatar
+      const avatarUrl = getStaticFileUrl(user.avatar);
+      console.log('Loading avatar:', user.avatar, '→', avatarUrl); // Debug
+      setAvatarPreview(avatarUrl);
+      setOriginalAvatar(avatarUrl); // Lưu avatar gốc
+      setShouldDeleteAvatar(false);
       reset({
         name: user.name || '',
         email: user.email || '',
@@ -235,6 +271,9 @@ const Users = () => {
       });
     } else {
       setSelectedUser(null);
+      setAvatarPreview(null);
+      setOriginalAvatar(null);
+      setShouldDeleteAvatar(false);
       reset(initialFormState);
     }
     setOpenDialog(true);
@@ -245,6 +284,12 @@ const Users = () => {
     setSelectedUser(null);
     setEmailWarning(''); // ✅ Reset warning
     setPhoneWarning(''); // ✅ Reset phone warning
+    // ✅ Reset avatar state
+    setAvatarPreview(null);
+    setAvatarFile(null);
+    setOriginalAvatar(null);
+    setShouldDeleteAvatar(false);
+    stopCamera();
     reset(initialFormState);
   };
 
@@ -261,7 +306,7 @@ const Users = () => {
     }
   };
 
-  const onSubmit = (data) => {
+  const onSubmit = async (data) => {
     // ✅ Check email duplicate
     const trimmedEmail = data.email.trim().toLowerCase();
     const isDuplicate = users.some(u => 
@@ -313,10 +358,52 @@ const Users = () => {
       submitData.password = data.password.trim();
     }
 
+    // ✅ Xử lý avatar upload/xóa sau khi tạo/cập nhật user
+    const handleAvatarUpload = async (userId) => {
+      // Xóa avatar nếu đã đánh dấu xóa
+      if (shouldDeleteAvatar && selectedUser) {
+        setIsUploadingAvatar(true);
+        try {
+          await adminUsersApi.update(userId, { avatar: null });
+          toast.success('Đã xóa ảnh đại diện!');
+        } catch (error) {
+          console.error('Error deleting avatar:', error);
+        } finally {
+          setIsUploadingAvatar(false);
+        }
+        return;
+      }
+      
+      // Upload avatar mới nếu có
+      if (avatarPreview && avatarPreview.startsWith('data:')) {
+        // Upload base64 image (từ camera hoặc file đã convert)
+        setIsUploadingAvatar(true);
+        try {
+          await uploadAvatarBase64(userId, avatarPreview);
+          toast.success('Cập nhật ảnh đại diện thành công!');
+        } catch (error) {
+          toast.error('Lỗi khi upload ảnh đại diện');
+        } finally {
+          setIsUploadingAvatar(false);
+        }
+      }
+    };
+
     if (selectedUser) {
-      updateMutation.mutate({ id: selectedUser.id, data: submitData });
+      updateMutation.mutate({ id: selectedUser.id, data: submitData }, {
+        onSuccess: async () => {
+          await handleAvatarUpload(selectedUser.id);
+        }
+      });
     } else {
-      createMutation.mutate(submitData);
+      createMutation.mutate(submitData, {
+        onSuccess: async (response) => {
+          const newUserId = response?.data?.id || response?.id;
+          if (newUserId) {
+            await handleAvatarUpload(newUserId);
+          }
+        }
+      });
     }
   };
 
@@ -360,6 +447,90 @@ const Users = () => {
     }
   };
 
+  // ✅ Avatar upload handlers
+  const handleFileSelect = (event) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        toast.error('Ảnh không được vượt quá 5MB');
+        return;
+      }
+      setAvatarFile(file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setAvatarPreview(reader.result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const startCamera = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user', width: 640, height: 480 }
+      });
+      streamRef.current = stream;
+      setIsCameraOpen(true);
+    } catch (error) {
+      console.error('Error accessing camera:', error);
+      toast.error('Không thể truy cập camera. Vui lòng cho phép quyền truy cập.');
+      setIsCameraOpen(false);
+    }
+  }, []);
+
+  // ✅ Effect để gắn stream vào video element khi camera mở
+  useEffect(() => {
+    if (isCameraOpen && streamRef.current && videoRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+      videoRef.current.play().catch(e => console.log('Video play error:', e));
+    }
+  }, [isCameraOpen]);
+
+  const stopCamera = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+    setIsCameraOpen(false);
+  }, []);
+
+  const capturePhoto = useCallback(() => {
+    if (videoRef.current && canvasRef.current) {
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0);
+      const imageData = canvas.toDataURL('image/jpeg', 0.8);
+      setAvatarPreview(imageData);
+      setAvatarFile(null); // Clear file since we're using base64
+      stopCamera();
+    }
+  }, [stopCamera]);
+
+  const clearAvatar = () => {
+    setAvatarPreview(null);
+    setAvatarFile(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+    // Nếu đang edit và có avatar gốc -> đánh dấu cần xóa
+    if (selectedUser && originalAvatar) {
+      setShouldDeleteAvatar(true);
+    }
+  };
+
+  const uploadAvatarBase64 = async (userId, base64Data) => {
+    try {
+      const response = await adminUsersApi.uploadAvatar(userId, { avatar_base64: base64Data });
+      return response.data;
+    } catch (error) {
+      console.error('Upload avatar error:', error);
+      throw error;
+    }
+  };
+
   const handleDelete = (user) => {
     setSelectedUser(user);
     setOpenDeleteDialog(true);
@@ -389,7 +560,7 @@ const Users = () => {
       headerAlign: 'center',
       renderCell: (params) => (
         <Avatar
-          src={params.row.avatar}
+          src={getStaticFileUrl(params.row.avatar)}
           sx={{ bgcolor: ADMIN_COLORS.primary, width: 36, height: 36 }}
         >
           {params.row.name?.charAt(0)?.toUpperCase()}
@@ -619,6 +790,164 @@ const Users = () => {
         </DialogTitle>
         <DialogContent sx={{ mt: 2 }}>
           <Grid container spacing={2} sx={{ mt: 1 }}>
+            {/* ✅ Avatar Upload Section */}
+            <Grid item xs={12}>
+              <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
+                Ảnh đại diện
+              </Typography>
+              
+              {/* Camera View - Hiển thị khi đang mở camera */}
+              {isCameraOpen && (
+                <Box sx={{ mb: 2 }}>
+                  <Box 
+                    sx={{ 
+                      width: '100%', 
+                      maxWidth: 400,
+                      aspectRatio: '4/3',
+                      bgcolor: '#1a1a1a',
+                      borderRadius: 2,
+                      overflow: 'hidden',
+                      position: 'relative',
+                      mx: 'auto',
+                    }}
+                  >
+                    <video
+                      ref={videoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      style={{ 
+                        width: '100%', 
+                        height: '100%', 
+                        objectFit: 'cover',
+                        transform: 'scaleX(-1)', // Mirror effect
+                      }}
+                    />
+                    {/* Overlay hướng dẫn */}
+                    <Box sx={{
+                      position: 'absolute',
+                      bottom: 8,
+                      left: '50%',
+                      transform: 'translateX(-50%)',
+                      bgcolor: 'rgba(0,0,0,0.6)',
+                      color: 'white',
+                      px: 2,
+                      py: 0.5,
+                      borderRadius: 1,
+                      fontSize: '0.75rem',
+                    }}>
+                      Đưa khuôn mặt vào giữa khung hình
+                    </Box>
+                  </Box>
+                  <Stack direction="row" spacing={1} justifyContent="center" sx={{ mt: 1 }}>
+                    <Button
+                      variant="contained"
+                      color="success"
+                      startIcon={<CameraIcon />}
+                      onClick={capturePhoto}
+                      sx={{ textTransform: 'none' }}
+                    >
+                      Chụp ảnh
+                    </Button>
+                    <Button
+                      variant="outlined"
+                      color="error"
+                      onClick={stopCamera}
+                      sx={{ textTransform: 'none' }}
+                    >
+                      Hủy
+                    </Button>
+                  </Stack>
+                  <canvas ref={canvasRef} style={{ display: 'none' }} />
+                </Box>
+              )}
+
+              {/* Avatar Preview & Buttons - Hiển thị khi không mở camera */}
+              {!isCameraOpen && (
+                <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 2 }}>
+                  {/* Avatar Preview */}
+                  <Box sx={{ textAlign: 'center' }}>
+                    <Box sx={{ position: 'relative', display: 'inline-block' }}>
+                      <Avatar
+                        src={avatarPreview}
+                        sx={{ 
+                          width: 100, 
+                          height: 100, 
+                          bgcolor: ADMIN_COLORS.primary,
+                          border: avatarPreview ? '3px solid' : 'none',
+                          borderColor: 'primary.main',
+                        }}
+                      >
+                        {!avatarPreview && (selectedUser?.name?.charAt(0)?.toUpperCase() || '?')}
+                      </Avatar>
+                      {avatarPreview && (
+                        <IconButton
+                          size="small"
+                          onClick={clearAvatar}
+                          sx={{
+                            position: 'absolute',
+                            top: -8,
+                            right: -8,
+                            bgcolor: 'error.main',
+                            color: 'white',
+                            '&:hover': { bgcolor: 'error.dark' },
+                            width: 24,
+                            height: 24,
+                          }}
+                        >
+                          <CloseIcon sx={{ fontSize: 14 }} />
+                        </IconButton>
+                      )}
+                    </Box>
+                    {/* Nút xóa ảnh rõ ràng */}
+                    {(avatarPreview || shouldDeleteAvatar) && (
+                      <Button
+                        size="small"
+                        color="error"
+                        onClick={clearAvatar}
+                        startIcon={<DeleteIcon />}
+                        sx={{ mt: 1, textTransform: 'none', fontSize: '0.75rem' }}
+                      >
+                        {shouldDeleteAvatar ? 'Đã đánh dấu xóa' : 'Xóa ảnh'}
+                      </Button>
+                    )}
+                  </Box>
+
+                  {/* Upload/Camera Buttons */}
+                  <Stack spacing={1}>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      ref={fileInputRef}
+                      onChange={handleFileSelect}
+                      style={{ display: 'none' }}
+                    />
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      startIcon={<UploadIcon />}
+                      onClick={() => fileInputRef.current?.click()}
+                      sx={{ textTransform: 'none' }}
+                    >
+                      Tải ảnh lên
+                    </Button>
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      startIcon={<CameraIcon />}
+                      onClick={startCamera}
+                      sx={{ textTransform: 'none' }}
+                    >
+                      Chụp từ camera
+                    </Button>
+                    <Typography variant="caption" color="text.secondary">
+                      Tối đa 5MB, định dạng JPG/PNG
+                    </Typography>
+                  </Stack>
+                </Box>
+              )}
+            </Grid>
+
             <Grid item xs={12}>
               <FormTextField
                 name="name"

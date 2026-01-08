@@ -126,40 +126,33 @@ class ProductTemperatureController extends Controller
             $limit = $request->input('limit', 50);
             $products = $query->limit($limit)->get();
 
-            $result = [];
-            foreach ($products as $product) {
-                // Convert attributes to array if it's a string
+            // Chuẩn bị data cho BATCH classification (NHANH HƠN NHIỀU)
+            $productsData = $products->map(function ($product) {
                 $attributes = $product->attributes;
                 if (is_string($attributes)) {
                     $attributes = json_decode($attributes, true) ?: null;
                 }
-                
-                // Gọi AI Service (đã tích hợp rule-based + model)
-                $classification = $this->localAIClassifier 
-                    ? $this->localAIClassifier->classify(
-                        $product->name,
-                        $product->category->name ?? null,
-                        $attributes
-                    )
-                    : [
-                        'temperature' => 'UNKNOWN',
-                        'confidence' => 0.0,
-                        'source' => 'AI_DISABLED',
-                        'reason' => 'AI service không được bật'
-                    ];
-
-                $result[] = [
+                return [
                     'id' => $product->id,
                     'name' => $product->name,
                     'categoryName' => $product->category->name ?? null,
                     'thumbnail' => $product->thumbnail,
                     'price' => $product->price,
-                    'temperature' => $classification['temperature'],
-                    'confidence' => $classification['confidence'],
-                    'source' => $classification['source'],
-                    'reason' => $classification['reason'],
+                    'attributes' => $attributes
                 ];
-            }
+            })->toArray();
+
+            // Gọi AI Service BATCH - 1 request thay vì N requests
+            $result = $this->localAIClassifier 
+                ? $this->localAIClassifier->classifyBatch($productsData)
+                : array_map(function ($p) {
+                    return array_merge($p, [
+                        'temperature' => 'UNKNOWN',
+                        'confidence' => 0.0,
+                        'source' => 'AI_DISABLED',
+                        'reason' => 'AI service không được bật'
+                    ]);
+                }, $productsData);
 
             return response()->json([
                 'success' => true,
