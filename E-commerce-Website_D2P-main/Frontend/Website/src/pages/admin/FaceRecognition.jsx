@@ -216,6 +216,25 @@ const FaceRecognition = () => {
     }
   }, [selectedCameraId]);
 
+  // ✅ Tự động bật camera khi vào tab (chỉ chạy 1 lần khi mount và điều kiện đủ)
+  const hasAutoStartedRef = useRef(false);
+  useEffect(() => {
+    // Chỉ tự động bật một lần khi mount
+    if (hasAutoStartedRef.current) return;
+    
+    // Đợi cameras được load xong và AI service sẵn sàng
+    if (!loadingCameras && statusData?.ai_service === 'online' && !isCameraOpen && availableCameras.length > 0) {
+      // Delay nhỏ để đảm bảo component đã render xong
+      const autoStartTimer = setTimeout(() => {
+        console.log('[Auto Start] ✅ Tự động bật camera khi vào tab');
+        hasAutoStartedRef.current = true;
+        startScanning();
+      }, 500);
+      
+      return () => clearTimeout(autoStartTimer);
+    }
+  }, [loadingCameras, statusData?.ai_service, isCameraOpen, availableCameras.length, startScanning]);
+
   // Gắn stream vào video và bắt đầu quét khi camera mở
   useEffect(() => {
     if (isCameraOpen && streamRef.current && videoRef.current) {
