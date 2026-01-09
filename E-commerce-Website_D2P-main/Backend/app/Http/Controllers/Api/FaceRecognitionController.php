@@ -75,8 +75,7 @@ class FaceRecognitionController extends Controller
         ]);
 
         $imageBase64 = $request->input('image_base64');
-
-        // Lấy danh sách khách hàng có avatar
+        // Chuẩn bị cache customers cho AI Service nếu chưa có hoặc quá cũ
         $customers = User::whereNotNull('avatar')
             ->where('avatar', '!=', '')
             ->select('id', 'name', 'email', 'phone', 'avatar', 'loyalty_tier', 'loyalty_points', 'created_at')
@@ -89,20 +88,30 @@ class FaceRecognitionController extends Controller
             ], 404);
         }
 
-        // Gửi request đến AI Service để nhận diện
+        // Cache khách hàng lên AI Service (gọi nhẹ, chỉ gửi danh sách 1 lần per request; AI giữ RAM, frontend không phải gửi liên tục)
         try {
-            $response = Http::timeout(30)
+            Http::timeout(15)
                 ->withoutVerifying()
-                ->post($this->aiServiceUrl . '/face/recognize', [
-                    'image_base64' => $imageBase64,
+                ->post($this->aiServiceUrl . '/face/cache-customers', [
                     'customers' => $customers->map(function ($customer) {
                         return [
                             'id' => $customer->id,
                             'name' => $customer->name,
                             'avatar_url' => url($customer->avatar),
-                            'avatar_path' => $customer->avatar, // Đường dẫn relative để AI đọc từ disk
+                            'avatar_path' => $customer->avatar,
                         ];
                     })->toArray()
+                ]);
+        } catch (\Exception $e) {
+            // Không chặn flow nếu cache thất bại; tiếp tục recognize
+        }
+
+        // Gửi request đến AI Service để nhận diện (chỉ gửi ảnh, không gửi lại customers)
+        try {
+            $response = Http::timeout(30)
+                ->withoutVerifying()
+                ->post($this->aiServiceUrl . '/face/recognize', [
+                    'image_base64' => $imageBase64
                 ]);
 
             if ($response->successful()) {
@@ -126,29 +135,36 @@ class FaceRecognitionController extends Controller
                     // Lấy 5 sản phẩm gần nhất từ đơn hàng
                     $recentProducts = $this->getRecentProducts($result['customer_id']);
                     
-                    // So sánh chất lượng ảnh: nếu ảnh mới tốt hơn avatar cũ -> cập nhật avatar
+                    // Auto-update avatar CHỈ khi CỰC KỲ CHẮC CHẮN
+                    // Nếu không đủ điều kiện khắt khe → NV quyết định qua nút thủ công
                     $newQuality = $baseResponse['face_quality'] ?? 0;
                     $oldQuality = $result['avatar_quality'] ?? null;
                     $hasCropped = !empty($baseResponse['cropped_face']);
+                    $cosineSim = $result['cosine_similarity'] ?? 0;
 
-                    // Chỉ cập nhật avatar nếu:
-                    // 1) Có số đo chất lượng avatar cũ
-                    // 2) Ảnh mới rõ ràng (>= 40%)
-                    // 3) Ảnh mới tốt hơn ảnh cũ ít nhất 5%
+                    // Điều kiện AUTO-UPDATE (CỰC KỲ KHẮT KHE):
+                    // 1) Cosine >= 0.85 (85%+) - phải cực kỳ chắc chắn là cùng người
+                    // 2) Ảnh mới tốt hơn ảnh cũ ít nhất 10%
+                    // 3) Chất lượng ảnh mới >= 60%
+                    // Nếu không đạt → NV bấm nút "Cập nhật ảnh đại diện" thủ công
                     if ($matchedCustomer && $hasCropped && $oldQuality !== null) {
-                        $betterEnough = $newQuality >= ($oldQuality + 5);
-                        $clearEnough  = $newQuality >= 40;
-                        if ($betterEnough && $clearEnough) {
+                        $veryHighConfidence = $cosineSim >= 0.85;
+                        $significantImprovement = $newQuality >= ($oldQuality + 10);
+                        $highQuality = $newQuality >= 60;
+
+                        if ($veryHighConfidence && $significantImprovement && $highQuality) {
                             try {
                                 $avatarPath = $this->saveCroppedAvatar($baseResponse['cropped_face'], $matchedCustomer->id);
                                 if ($avatarPath) {
                                     $matchedCustomer->avatar = $avatarPath;
                                     $matchedCustomer->save();
+                                    \Log::info("Avatar auto-updated for customer {$matchedCustomer->id} (cosine={$cosineSim}, quality: {$oldQuality} -> {$newQuality})");
                                 }
                             } catch (\Exception $e) {
                                 \Log::warning('Không thể cập nhật avatar tự động: ' . $e->getMessage());
                             }
                         }
+                        // Nếu không đủ điều kiện khắt khe → NV dùng nút thủ công
                     }
                     
                     return response()->json(array_merge($baseResponse, [
@@ -343,6 +359,77 @@ class FaceRecognitionController extends Controller
             ->toArray();
 
         return $recentOrderItems;
+    }
+
+    /**
+     * Cập nhật avatar thủ công từ ảnh đã crop (cho nhân viên)
+     * 
+     * @OA\Post(
+     *     path="/admin/face/update-avatar",
+     *     tags={"Face Recognition"},
+     *     summary="Cập nhật avatar thủ công",
+     *     security={{"sanctum":{}}},
+     *     @OA\RequestBody(required=true, @OA\JsonContent(
+     *         @OA\Property(property="customer_id", type="integer", description="ID khách hàng"),
+     *         @OA\Property(property="cropped_face", type="string", description="Ảnh mặt đã crop (base64)")
+     *     )),
+     *     @OA\Response(response=200, description="Cập nhật thành công")
+     * )
+     */
+    public function updateAvatarManual(Request $request)
+    {
+        $this->ensureAdmin($request);
+
+        $request->validate([
+            'customer_id' => ['required', 'integer'],
+            'cropped_face' => ['required', 'string'],
+        ]);
+
+        $customerId = $request->input('customer_id');
+        $croppedFace = $request->input('cropped_face');
+
+        $customer = User::find($customerId);
+        if (!$customer) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Không tìm thấy khách hàng'
+            ], 404);
+        }
+
+        try {
+            $avatarPath = $this->saveCroppedAvatar($croppedFace, $customerId);
+            if ($avatarPath) {
+                $customer->avatar = $avatarPath;
+                $customer->save();
+
+                // Clear cache embedding của khách này
+                try {
+                    Http::timeout(5)
+                        ->withoutVerifying()
+                        ->post($this->aiServiceUrl . '/face/clear-cache');
+                } catch (\Exception $e) {
+                    // Bỏ qua nếu không clear được cache
+                }
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Cập nhật avatar thành công',
+                    'avatar' => $avatarPath,
+                    'customer_id' => $customerId
+                ]);
+            }
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Không thể lưu ảnh avatar'
+            ], 500);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Lỗi cập nhật avatar: ' . $e->getMessage()
+            ], 500);
+        }
     }
 
     /**

@@ -289,6 +289,7 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role.admin'])->group(functi
         Route::post('recognize', [FaceRecognitionController::class, 'recognize']);
         Route::post('detect', [FaceRecognitionController::class, 'detectOnly']); // Debug endpoint
         Route::post('clear-cache', [FaceRecognitionController::class, 'clearCache']);
+        Route::post('update-avatar', [FaceRecognitionController::class, 'updateAvatarManual']); // NV update avatar thủ công
     });
 });
 

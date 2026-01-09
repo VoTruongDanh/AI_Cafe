@@ -95,6 +95,10 @@ const FaceRecognition = () => {
   });
   const [isCreating, setIsCreating] = useState(false);
 
+  // Update avatar thủ công
+  const [isUpdatingAvatar, setIsUpdatingAvatar] = useState(false);
+  const [croppedFaceFromScan, setCroppedFaceFromScan] = useState(null); // Ảnh mặt đã crop từ scan
+
   // AI Suggestions state (từ trang /AI)
   const [temperature, setTemperature] = useState('32');
   const [suggestions, setSuggestions] = useState([]);
@@ -186,6 +190,7 @@ const FaceRecognition = () => {
       setCapturedImage(null);
       setBestFaceImage(null);
       setBestFaceQuality(0);
+      setCroppedFaceFromScan(null); // Clear ảnh so sánh
       
       // Cấu hình video constraints
       const videoConstraints = {
@@ -253,20 +258,25 @@ const FaceRecognition = () => {
     // Chụp frame từ video với quality cao hơn
     const videoWidth = video.videoWidth || 640;
     const videoHeight = video.videoHeight || 480;
-    canvas.width = videoWidth;
-    canvas.height = videoHeight;
+    // Giới hạn kích thước gửi để giảm dung lượng (max width 800, giữ tỉ lệ)
+    const maxWidth = 800;
+    const scale = videoWidth > maxWidth ? maxWidth / videoWidth : 1;
+    const targetWidth = Math.floor(videoWidth * scale);
+    const targetHeight = Math.floor(videoHeight * scale);
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
     const ctx = canvas.getContext('2d');
     
     // Mirror ảnh vì video đã được mirror trong CSS
-    ctx.translate(videoWidth, 0);
+    ctx.translate(targetWidth, 0);
     ctx.scale(-1, 1);
-    ctx.drawImage(video, 0, 0, videoWidth, videoHeight);
+    ctx.drawImage(video, 0, 0, targetWidth, targetHeight);
     
     // Reset transform
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     
-    const imageData = canvas.toDataURL('image/jpeg', 0.95);
-    console.log(`[SCAN] Canvas: ${videoWidth}x${videoHeight}, Data length: ${imageData.length}`);
+    const imageData = canvas.toDataURL('image/jpeg', 0.85);
+    console.log(`[SCAN] Canvas: ${targetWidth}x${targetHeight}, Data length: ${imageData.length}`);
 
     setScanCount(prev => prev + 1);
     setLastScanTime(new Date());
@@ -341,6 +351,8 @@ const FaceRecognition = () => {
         // Điều kiện chốt: đủ 3 lần liên tiếp
         if (streak >= 3) {
           setRecognitionResult(result);
+          // Lưu ảnh mặt đã crop để NV có thể update avatar thủ công
+          setCroppedFaceFromScan(result.cropped_face || bestFaceImageRef.current);
           setIsScanning(false);
           noMatchCountRef.current = 0; // Reset ref
           setNoMatchCount(0);
@@ -444,6 +456,7 @@ const FaceRecognition = () => {
     setNoFaceCount(0);
     setProcessingTime(0);
     setError(null);
+    setCroppedFaceFromScan(null); // Clear ảnh so sánh
     
     // Đợi state clear xong rồi mới bắt đầu scan mới
     setTimeout(() => {
@@ -533,9 +546,46 @@ const FaceRecognition = () => {
     setFaceDetectedCount(0);
     setNoFaceCount(0);
     setDebugInfo(null);
+    setCroppedFaceFromScan(null);
     // Bắt đầu quét lại
     setIsScanning(true);
     startRealtimeScan();
+  };
+
+  // Cập nhật avatar thủ công (cho nhân viên)
+  const handleUpdateAvatar = async () => {
+    if (!recognitionResult?.customer_id || !croppedFaceFromScan) {
+      toast.error('Không có ảnh mặt để cập nhật');
+      return;
+    }
+
+    setIsUpdatingAvatar(true);
+    try {
+      const response = await faceRecognitionApi.updateAvatar(
+        recognitionResult.customer_id,
+        croppedFaceFromScan
+      );
+
+      if (response.data.success) {
+        toast.success('Đã cập nhật ảnh đại diện thành công!');
+        // Cập nhật recognitionResult với avatar mới
+        setRecognitionResult(prev => ({
+          ...prev,
+          customer: {
+            ...prev.customer,
+            avatar: response.data.avatar
+          }
+        }));
+        setCroppedFaceFromScan(null); // Clear sau khi update
+      } else {
+        toast.error(response.data.message || 'Cập nhật thất bại');
+      }
+    } catch (err) {
+      console.error('Update avatar error:', err);
+      toast.error('Lỗi cập nhật ảnh: ' + (err.response?.data?.message || err.message));
+    } finally {
+      setIsUpdatingAvatar(false);
+    }
   };
 
   // Helper để tạo URL cho static files
@@ -1181,6 +1231,60 @@ const FaceRecognition = () => {
                   </Alert>
 
                   <Paper variant="outlined" sx={{ p: 2 }}>
+                    {/* So sánh ảnh cũ và ảnh mới */}
+                    {croppedFaceFromScan && (
+                      <Box sx={{ mb: 2, p: 2, bgcolor: '#f5f5f5', borderRadius: 2 }}>
+                        <Typography variant="subtitle2" sx={{ mb: 1.5, fontWeight: 600, textAlign: 'center' }}>
+                          📷 So sánh ảnh (NV có thể cập nhật avatar nếu ảnh mới rõ hơn)
+                        </Typography>
+                        <Box sx={{ display: 'flex', justifyContent: 'center', gap: 3, mb: 2 }}>
+                          <Box sx={{ textAlign: 'center' }}>
+                            <Avatar
+                              src={getStaticFileUrl(recognitionResult.customer?.avatar)}
+                              sx={{ 
+                                width: 100, 
+                                height: 100, 
+                                border: '3px solid',
+                                borderColor: 'grey.400',
+                                mb: 1
+                              }}
+                            >
+                              {recognitionResult.customer?.name?.charAt(0)?.toUpperCase()}
+                            </Avatar>
+                            <Typography variant="caption" color="text.secondary" display="block">
+                              Ảnh hiện tại
+                            </Typography>
+                          </Box>
+                          <Box sx={{ display: 'flex', alignItems: 'center', fontSize: 24 }}>→</Box>
+                          <Box sx={{ textAlign: 'center' }}>
+                            <Avatar
+                              src={croppedFaceFromScan}
+                              sx={{ 
+                                width: 100, 
+                                height: 100, 
+                                border: '3px solid',
+                                borderColor: 'success.main',
+                                mb: 1
+                              }}
+                            />
+                            <Typography variant="caption" color="success.main" display="block" fontWeight={600}>
+                              Ảnh mới ({(recognitionResult.face_quality || 0).toFixed(0)}%)
+                            </Typography>
+                          </Box>
+                        </Box>
+                        <Button
+                          variant="contained"
+                          color="success"
+                          fullWidth
+                          startIcon={isUpdatingAvatar ? <CircularProgress size={16} color="inherit" /> : <PhotoCameraIcon />}
+                          onClick={handleUpdateAvatar}
+                          disabled={isUpdatingAvatar}
+                        >
+                          {isUpdatingAvatar ? 'Đang cập nhật...' : 'Cập nhật ảnh đại diện'}
+                        </Button>
+                      </Box>
+                    )}
+
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
                       <Avatar
                         src={getStaticFileUrl(recognitionResult.customer?.avatar)}

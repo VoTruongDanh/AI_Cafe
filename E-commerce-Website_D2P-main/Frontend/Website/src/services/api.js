@@ -290,6 +290,10 @@ export const faceRecognitionApi = {
   recognize: (imageBase64) => api.post('/admin/face/recognize', { image_base64: imageBase64 }),
   detect: (imageBase64) => api.post('/admin/face/detect', { image_base64: imageBase64 }), // Debug
   clearCache: () => api.post('/admin/face/clear-cache'),
+  updateAvatar: (customerId, croppedFace) => api.post('/admin/face/update-avatar', { 
+    customer_id: customerId, 
+    cropped_face: croppedFace 
+  }), // NV update avatar thủ công
 }
 
 // Admin Categories API

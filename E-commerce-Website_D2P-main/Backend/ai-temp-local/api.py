@@ -24,12 +24,21 @@ FACENET_AVAILABLE = False
 MTCNN_DETECTOR = None
 FACENET_MODEL = None
 DEVICE = None
+FAISS_AVAILABLE = False
+FAISS_INDEX = None
+FAISS_ID_MAP = []  # index -> {"customer_id", "customer_name", "avatar_quality"}
 
 try:
     import torch
     from facenet_pytorch import MTCNN, InceptionResnetV1
     from PIL import Image
     import cv2
+    try:
+        import faiss
+        FAISS_AVAILABLE = True
+    except Exception as fe:
+        FAISS_AVAILABLE = False
+        print(f"[WARN] FAISS not available: {fe}")
     
     print("[INFO] Initializing Face Recognition System...")
     
@@ -280,6 +289,10 @@ class CustomerFace(BaseModel):
 
 class FaceRecognizeRequest(BaseModel):
     image_base64: str
+    customers: Optional[List[CustomerFace]] = None  # Cho phép null/absent để dùng cache server-side
+
+
+class CustomerCacheRequest(BaseModel):
     customers: List[CustomerFace]
 
 LARAVEL_PUBLIC_PATH = Path(__file__).parent.parent / "public"
@@ -287,6 +300,13 @@ LARAVEL_PUBLIC_PATH = Path(__file__).parent.parent / "public"
 # Cache embeddings với metadata
 EMBEDDING_CACHE = {}  # {path: {"embedding": np.array, "timestamp": float}}
 CACHE_EXPIRY = 3600  # 1 giờ
+
+# Cache danh sách customers (embedding đã tính) để frontend không phải gửi mỗi request
+CUSTOMER_CACHE = {
+    "version": 0,
+    "updated_at": 0,
+    "customers": []  # list dict {id, name, embedding, avatar_quality}
+}
 
 # Ngưỡng nhận diện - Balanced (tăng recall, giữ cảnh báo bằng vùng xám)
 SIMILARITY_THRESHOLD = 0.60  # Cosine >= 0.60 cho phép vào danh sách ứng viên (siết nhẹ để tăng độ chính xác)
@@ -441,16 +461,11 @@ def get_face_with_box(image_input, use_cache: bool = True, cache_key: str = None
         
         img_height, img_width = img_cv.shape[:2]
         
-        # Enhance ảnh nếu cần
-        if enhance:
-            img_cv_original = img_cv.copy()
-            img_cv = enhance_image(img_cv)
-            was_enhanced = not np.array_equal(img_cv, img_cv_original)
-        
+        # Không tăng cường ngay; thử detect gốc trước để giảm latency
         img_rgb = cv2.cvtColor(img_cv, cv2.COLOR_BGR2RGB)
         img = Image.fromarray(img_rgb)
         
-        # === TRY 1: MTCNN Detection ===
+        # === TRY 1: MTCNN Detection (ảnh gốc) ===
         boxes, probs = MTCNN_DETECTOR.detect(img)
         
         # === TRY 2: Haar cascade (nhanh hơn MTCNN) ===
@@ -625,6 +640,82 @@ def get_face_embedding(image_input, use_cache: bool = True, cache_key: str = Non
     return get_face_with_box(image_input, use_cache, cache_key)
 
 
+def cache_customers_embeddings(customers: List[CustomerFace]):
+    """Tính và lưu embeddings customers vào RAM để giảm payload từ frontend"""
+    global CUSTOMER_CACHE, FAISS_INDEX, FAISS_ID_MAP
+    cached_list = []
+    faiss_vectors = []
+    for customer in customers:
+        avatar_file_path = get_avatar_path(customer.avatar_url, customer.avatar_path)
+        if not avatar_file_path:
+            continue
+        avatar_embedding, avatar_face_info = get_face_with_box(
+            avatar_file_path,
+            use_cache=True,
+            cache_key=avatar_file_path
+        )
+        if avatar_embedding is None:
+            continue
+        avatar_quality = avatar_face_info.get("quality_score", 0) if avatar_face_info else 0
+        cached_list.append({
+            "customer_id": customer.id,
+            "customer_name": customer.name,
+            "embedding": avatar_embedding,
+            "avatar_quality": round(avatar_quality, 1)
+        })
+        if FAISS_AVAILABLE:
+            faiss_vectors.append((avatar_embedding.astype(np.float32), {
+                "customer_id": customer.id,
+                "customer_name": customer.name,
+                "avatar_quality": round(avatar_quality, 1)
+            }))
+    CUSTOMER_CACHE = {
+        "version": CUSTOMER_CACHE.get("version", 0) + 1,
+        "updated_at": time.time(),
+        "customers": cached_list
+    }
+    # Build FAISS HNSW index if available
+    FAISS_INDEX = None
+    FAISS_ID_MAP = []
+    if FAISS_AVAILABLE and len(faiss_vectors) > 0:
+        import faiss
+        dim = faiss_vectors[0][0].shape[0]
+        index = faiss.IndexHNSWFlat(dim, 32)
+        index.hnsw.efConstruction = 200
+        index.hnsw.efSearch = 128
+        for vec, meta in faiss_vectors:
+            index.add(np.ascontiguousarray([vec]))
+            FAISS_ID_MAP.append(meta)
+        FAISS_INDEX = index
+        print(f"[INFO] FAISS index built with {len(FAISS_ID_MAP)} vectors (efSearch=128, efConstruction=200)")
+    print(f"[INFO] Cached embeddings for {len(cached_list)} customers (version={CUSTOMER_CACHE['version']})")
+
+
+def search_faiss_candidates(query_embedding: np.ndarray, top_k: int = 50):
+    """Tìm ứng viên bằng FAISS HNSW (nếu có), trả về list dict với cosine/Euclidean"""
+    if not FAISS_AVAILABLE or FAISS_INDEX is None or len(FAISS_ID_MAP) == 0:
+        return None
+    k = min(top_k, len(FAISS_ID_MAP))
+    q = np.ascontiguousarray([query_embedding.astype(np.float32)])
+    D, I = FAISS_INDEX.search(q, k)
+    results = []
+    for dist, idx in zip(D[0], I[0]):
+        if idx < 0 or idx >= len(FAISS_ID_MAP):
+            continue
+        # Với vector đã chuẩn hóa, L2^2 = 2 - 2*cosine => cosine = 1 - dist/2
+        cosine_sim = 1 - float(dist) / 2.0
+        euclid = float(np.sqrt(max(dist, 0.0)))
+        meta = FAISS_ID_MAP[idx]
+        results.append({
+            "customer_id": meta["customer_id"],
+            "customer_name": meta["customer_name"],
+            "cosine_similarity": cosine_sim,
+            "euclidean_distance": euclid,
+            "confidence": round(cosine_sim * 100, 1),
+            "avatar_quality": meta.get("avatar_quality", 0)
+        })
+    return results
+
 def compute_similarity(emb1: np.ndarray, emb2: np.ndarray) -> dict:
     """
     Tính độ tương đồng giữa 2 embeddings với nhiều metrics
@@ -686,6 +777,10 @@ def face_status():
         "device": str(DEVICE) if DEVICE else "N/A",
         "model": "InceptionResnetV1-VGGFace2" if FACENET_AVAILABLE else None,
         "cached_embeddings": len(EMBEDDING_CACHE),
+        "customer_cache_size": len(CUSTOMER_CACHE.get("customers", [])),
+        "customer_cache_version": CUSTOMER_CACHE.get("version", 0),
+        "faiss_available": FAISS_AVAILABLE,
+        "faiss_index_size": len(FAISS_ID_MAP),
         "similarity_threshold": SIMILARITY_THRESHOLD,
         "message": "Ready" if FACENET_AVAILABLE else "Not available"
     }
@@ -748,6 +843,21 @@ def face_detect_only(req: FaceDetectRequest):
         traceback.print_exc()
         return {"detected": False, "message": str(e), "error": "exception"}
 
+@app.post("/face/cache-customers")
+def face_cache_customers(payload: CustomerCacheRequest):
+    """Preload embeddings của customers vào RAM để giảm payload nhận diện"""
+    start_time = time.time()
+    if not FACENET_AVAILABLE:
+        return {"success": False, "message": "FaceNet not available"}
+    customers = payload.customers or []
+    cache_customers_embeddings(customers)
+    return {
+        "success": True,
+        "cached": len(CUSTOMER_CACHE.get("customers", [])),
+        "version": CUSTOMER_CACHE.get("version", 0),
+        "processing_time_ms": int((time.time() - start_time) * 1000)
+    }
+
 
 @app.post("/face/recognize")
 def face_recognize(req: FaceRecognizeRequest):
@@ -798,9 +908,9 @@ def face_recognize(req: FaceRecognizeRequest):
         confidence = camera_face_info.get('confidence', 0)
         face_box = camera_face_info.get('box')
         
-        # Ngưỡng tối thiểu để coi là "mặt chính xác" (siết lại để tránh đếm ảnh vô nghĩa)
-        MIN_QUALITY_THRESHOLD = 45.0
-        MIN_CONFIDENCE_THRESHOLD = 0.50
+        # Ngưỡng tối thiểu để coi là "mặt chính xác" (tăng recall thêm một chút)
+        MIN_QUALITY_THRESHOLD = 35.0
+        MIN_CONFIDENCE_THRESHOLD = 0.40
 
         # Kiểm tra tỷ lệ khuôn mặt trong khung hình để loại bỏ box sai
         img_w = camera_face_info.get("image_size", {}).get("width")
@@ -809,6 +919,7 @@ def face_recognize(req: FaceRecognizeRequest):
         face_h = camera_face_info.get("face_size", {}).get("height", 0)
         area_ratio = (face_w * face_h) / (img_w * img_h) if img_w and img_h else 0
         # Yêu cầu mặt chiếm từ ~2.5% đến 40% khung hình để tránh nền/bóng đèn bị nhận nhầm
+        # (Mặt quá nhỏ <2.5% sẽ cho vector nhiễu -> Garbage in, Garbage out)
         if area_ratio < 0.025 or area_ratio > 0.40:
             print(f"[WARNING] Face area ratio out of range ({area_ratio:.4f}) - skipping comparison")
             for f in temp_files:
@@ -840,44 +951,51 @@ def face_recognize(req: FaceRecognizeRequest):
         
         print(f"[INFO] Camera face detected (confidence: {confidence:.2f}, quality: {quality_score:.1f}) - Proceeding with comparison")
         
-        # 3. So sánh với từng customer (CHỈ KHI ĐÃ VALIDATE MẶT CHÍNH XÁC)
+        # 3. Chuẩn bị danh sách customers (ưu tiên cache RAM)
         matches = []
-        
-        for customer in req.customers:
-            avatar_file_path = get_avatar_path(customer.avatar_url, customer.avatar_path)
-            if not avatar_file_path:
-                continue
-            
-            # Lấy embedding từ avatar (có cache)
-            avatar_embedding, avatar_face_info = get_face_with_box(
-                avatar_file_path,
-                use_cache=True,
-                cache_key=avatar_file_path
-            )
-            
-            avatar_quality = avatar_face_info.get("quality_score", 0) if avatar_face_info else 0
-            
-            if avatar_embedding is None:
-                print(f"[WARNING] No face in avatar for customer {customer.id}: {customer.name}")
-                continue
-            
-            # Tính similarity
-            similarity = compute_similarity(camera_embedding, avatar_embedding)
-            
-            print(f"[DEBUG] Customer {customer.id} ({customer.name}): "
-                  f"cosine={similarity['cosine_similarity']:.4f}, "
-                  f"euclidean={similarity['euclidean_distance']:.4f}, "
-                  f"match={similarity['is_match']}")
-            
-            if similarity['is_match']:
-                matches.append({
-                    "customer_id": customer.id,
-                    "customer_name": customer.name,
-                    "cosine_similarity": similarity['cosine_similarity'],
-                    "euclidean_distance": similarity['euclidean_distance'],
-                    "confidence": round(similarity['cosine_similarity'] * 100, 1),
-                    "avatar_quality": round(avatar_quality, 1)
-                })
+        customer_embeddings = []
+
+        if req.customers and len(req.customers) > 0:
+            # Nếu frontend vẫn gửi, cập nhật cache và dùng luôn
+            cache_customers_embeddings(req.customers)
+            customer_embeddings = CUSTOMER_CACHE.get("customers", [])
+        else:
+            customer_embeddings = CUSTOMER_CACHE.get("customers", [])
+
+        if not customer_embeddings:
+            for f in temp_files:
+                try: os.remove(f)
+                except: pass
+            return {
+                "matched": False,
+                "face_detected": True,
+                "message": "Chưa có cache customers. Vui lòng preload /face/cache-customers",
+                "processing_time_ms": int((time.time() - start_time) * 1000)
+            }
+
+        # 4. So sánh với customers trong cache (ưu tiên FAISS HNSW)
+        faiss_results = search_faiss_candidates(camera_embedding, top_k=50)
+        if faiss_results is not None:
+            for r in faiss_results:
+                if r["cosine_similarity"] >= SIMILARITY_THRESHOLD or r["euclidean_distance"] < DISTANCE_THRESHOLD:
+                    matches.append(r)
+        else:
+            # Fallback linear nếu FAISS không có
+            for c in customer_embeddings:
+                avatar_embedding = c.get("embedding")
+                avatar_quality = c.get("avatar_quality", 0)
+                if avatar_embedding is None:
+                    continue
+                similarity = compute_similarity(camera_embedding, avatar_embedding)
+                if similarity['is_match']:
+                    matches.append({
+                        "customer_id": c["customer_id"],
+                        "customer_name": c["customer_name"],
+                        "cosine_similarity": similarity['cosine_similarity'],
+                        "euclidean_distance": similarity['euclidean_distance'],
+                        "confidence": round(similarity['cosine_similarity'] * 100, 1),
+                        "avatar_quality": round(avatar_quality, 1)
+                    })
         
         # Cleanup temp files
         for f in temp_files:
