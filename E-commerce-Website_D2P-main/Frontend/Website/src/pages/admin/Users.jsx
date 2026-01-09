@@ -493,7 +493,7 @@ const Users = () => {
   };
 
   // ✅ Avatar upload handlers
-  const handleFileSelect = (event) => {
+  const handleFileSelect = async (event) => {
     const file = event.target.files?.[0];
     if (file) {
       if (file.size > 5 * 1024 * 1024) {
@@ -502,8 +502,29 @@ const Users = () => {
       }
       setAvatarFile(file);
       const reader = new FileReader();
-      reader.onloadend = () => {
-        setAvatarPreview(reader.result);
+      reader.onloadend = async () => {
+        const imageBase64 = reader.result;
+        
+        // Tự động crop mặt
+        setIsUploadingAvatar(true);
+        try {
+          const croppedFace = await cropFaceFromImage(imageBase64);
+          if (croppedFace) {
+            setAvatarPreview(croppedFace);
+            toast.success('Đã tự động crop mặt!');
+          } else {
+            // Không có mặt -> dùng ảnh gốc nhưng cảnh báo
+            setAvatarPreview(imageBase64);
+            toast.warning('Không phát hiện khuôn mặt. Vui lòng chọn ảnh có mặt rõ ràng hơn.');
+          }
+        } catch (error) {
+          console.error('Error cropping face:', error);
+          // Fallback: dùng ảnh gốc
+          setAvatarPreview(imageBase64);
+          toast.warning('Không thể crop mặt tự động. Đã dùng ảnh gốc.');
+        } finally {
+          setIsUploadingAvatar(false);
+        }
       };
       reader.readAsDataURL(file);
     }
@@ -539,7 +560,61 @@ const Users = () => {
     setIsCameraOpen(false);
   }, []);
 
-  const capturePhoto = useCallback(() => {
+  // Crop mặt từ ảnh đã chụp/tải lên
+  const cropFaceFromImage = async (imageBase64) => {
+    try {
+      // Gọi API detect mặt
+      const response = await faceRecognitionApi.detect(imageBase64);
+      const result = response.data?.ai_response || response.data;
+      
+      if (result.detected && result.cropped_face) {
+        // Có mặt và đã crop sẵn -> dùng ảnh đã crop
+        return result.cropped_face;
+      } else if (result.detected && result.face_box) {
+        // Có mặt nhưng chưa crop -> tự crop
+        const box = result.face_box; // [x1, y1, x2, y2]
+        const img = new Image();
+        return new Promise((resolve, reject) => {
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            const [x1, y1, x2, y2] = box;
+            const width = x2 - x1;
+            const height = y2 - y1;
+            const margin = Math.max(width, height) * 0.2; // Thêm margin 20%
+            
+            canvas.width = width + margin * 2;
+            canvas.height = height + margin * 2;
+            
+            ctx.drawImage(
+              img,
+              Math.max(0, x1 - margin),
+              Math.max(0, y1 - margin),
+              width + margin * 2,
+              height + margin * 2,
+              0,
+              0,
+              canvas.width,
+              canvas.height
+            );
+            
+            const croppedBase64 = canvas.toDataURL('image/jpeg', 0.9);
+            resolve(croppedBase64);
+          };
+          img.onerror = reject;
+          img.src = imageBase64;
+        });
+      } else {
+        // Không có mặt
+        return null;
+      }
+    } catch (error) {
+      console.error('Error cropping face:', error);
+      return null;
+    }
+  };
+
+  const capturePhoto = useCallback(async () => {
     if (videoRef.current && canvasRef.current) {
       const video = videoRef.current;
       const canvas = canvasRef.current;
@@ -548,7 +623,28 @@ const Users = () => {
       const ctx = canvas.getContext('2d');
       ctx.drawImage(video, 0, 0);
       const imageData = canvas.toDataURL('image/jpeg', 0.8);
-      setAvatarPreview(imageData);
+      
+      // Tự động crop mặt
+      setIsUploadingAvatar(true);
+      try {
+        const croppedFace = await cropFaceFromImage(imageData);
+        if (croppedFace) {
+          setAvatarPreview(croppedFace);
+          toast.success('Đã tự động crop mặt!');
+        } else {
+          // Không có mặt -> dùng ảnh gốc nhưng cảnh báo
+          setAvatarPreview(imageData);
+          toast.warning('Không phát hiện khuôn mặt. Vui lòng chụp lại với mặt rõ ràng hơn.');
+        }
+      } catch (error) {
+        console.error('Error cropping face:', error);
+        // Fallback: dùng ảnh gốc
+        setAvatarPreview(imageData);
+        toast.warning('Không thể crop mặt tự động. Đã dùng ảnh gốc.');
+      } finally {
+        setIsUploadingAvatar(false);
+      }
+      
       setAvatarFile(null); // Clear file since we're using base64
       stopCamera();
     }
