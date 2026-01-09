@@ -171,34 +171,46 @@ class FaceRecognitionController extends Controller
                     // Lấy 5 sản phẩm gần nhất từ đơn hàng (chỉ khi có customer)
                     $recentProducts = $matchedCustomer ? $this->getRecentProducts($result['customer_id']) : [];
                     
-                    // Auto-update avatar CHỈ khi CỰC KỲ CHẮC CHẮN
+                    // ✅ Nâng cấp: Auto-update avatar CHỈ khi CỰC KỲ CHẮC CHẮN + Policy = 'auto'
                     // Nếu không đủ điều kiện khắt khe → NV quyết định qua nút thủ công
                     $newQuality = $baseResponse['face_quality'] ?? 0;
                     $oldQuality = $result['avatar_quality'] ?? null;
                     $hasCropped = !empty($baseResponse['cropped_face']);
                     $cosineSim = $result['cosine_similarity'] ?? 0;
+                    $policy = $result['policy'] ?? 'unknown'; // ✅ Bắt buộc: Policy phải là 'auto'
 
-                    // Điều kiện AUTO-UPDATE (CỰC KỲ KHẮT KHE):
-                    // 1) Cosine >= 0.85 (85%+) - phải cực kỳ chắc chắn là cùng người
-                    // 2) Ảnh mới tốt hơn ảnh cũ ít nhất 10%
-                    // 3) Chất lượng ảnh mới >= 60%
-                    // Nếu không đạt → NV bấm nút "Cập nhật ảnh đại diện" thủ công
+                    // Điều kiện AUTO-UPDATE (CỰC KỲ KHẮT KHE - Tránh Data Poisoning):
+                    // 1) policy == 'auto' (BẮT BUỘC: Phải là kết quả tự tin tuyệt đối, không nằm trong vùng xám/review)
+                    // 2) cosine_similarity >= 0.85 (85%+) - phải cực kỳ chắc chắn là cùng người
+                    // 3) newQuality >= (oldQuality + 10) - Ảnh mới tốt hơn ảnh cũ ít nhất 10%
+                    // 4) newQuality >= 60 - Chất lượng ảnh mới >= 60%
+                    // Lưu ý: Nếu thiếu điều kiện số 1, tuyệt đối không update tự động để tránh Data Poisoning
                     if ($matchedCustomer && $hasCropped && $oldQuality !== null) {
+                        $policyIsAuto = ($policy === 'auto'); // ✅ Điều kiện BẮT BUỘC
                         $veryHighConfidence = $cosineSim >= 0.85;
                         $significantImprovement = $newQuality >= ($oldQuality + 10);
                         $highQuality = $newQuality >= 60;
 
-                        if ($veryHighConfidence && $significantImprovement && $highQuality) {
+                        // ✅ CHỈ update khi TẤT CẢ điều kiện đều đạt (bao gồm policy == 'auto')
+                        if ($policyIsAuto && $veryHighConfidence && $significantImprovement && $highQuality) {
                             try {
                                 $avatarPath = $this->saveCroppedAvatar($baseResponse['cropped_face'], $matchedCustomer->id);
                                 if ($avatarPath) {
                                     $matchedCustomer->avatar = $avatarPath;
                                     $matchedCustomer->save();
-                                    \Log::info("Avatar auto-updated for customer {$matchedCustomer->id} (cosine={$cosineSim}, quality: {$oldQuality} -> {$newQuality})");
+                                    \Log::info("✅ Avatar auto-updated for customer {$matchedCustomer->id} (policy={$policy}, cosine={$cosineSim}, quality: {$oldQuality} -> {$newQuality})");
                                 }
                             } catch (\Exception $e) {
                                 \Log::warning('Không thể cập nhật avatar tự động: ' . $e->getMessage());
                             }
+                        } else {
+                            // Log lý do không update để debug
+                            $reasons = [];
+                            if (!$policyIsAuto) $reasons[] = "policy={$policy} (not 'auto')";
+                            if (!$veryHighConfidence) $reasons[] = "cosine={$cosineSim} < 0.85";
+                            if (!$significantImprovement) $reasons[] = "quality improvement insufficient ({$oldQuality} -> {$newQuality})";
+                            if (!$highQuality) $reasons[] = "newQuality={$newQuality} < 60";
+                            \Log::info("⏸ Avatar auto-update skipped for customer {$matchedCustomer->id}: " . implode(', ', $reasons));
                         }
                         // Nếu không đủ điều kiện khắt khe → NV dùng nút thủ công
                     }
