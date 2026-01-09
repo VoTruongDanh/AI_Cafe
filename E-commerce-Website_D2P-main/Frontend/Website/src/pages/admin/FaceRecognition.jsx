@@ -58,7 +58,7 @@ import { faceRecognitionApi, adminUsersApi } from '../../services/api';
 import api from '../../services/api';
 import { toast } from 'react-toastify';
 
-const SCAN_INTERVAL = 2000; // Quét mỗi 2 giây (giảm để nhận diện nhanh hơn)
+const SCAN_INTERVAL = 1200; // Quét mỗi 1.2 giây (nhanh hơn)
 const MAX_SCANS_BEFORE_NEW_CUSTOMER = 3; // Sau 3 lần quét không tìm thấy -> hiện khách mới
 
 const FaceRecognition = () => {
@@ -293,12 +293,13 @@ const FaceRecognition = () => {
       
       // === KIỂM TRA CÓ DETECT ĐƯỢC MẶT KHÔNG ===
       if (!result.face_detected) {
-        // KHÔNG có mặt trong frame - không so sánh, không đếm "khách mới"
-        console.log(`[NO FACE] Scan #${scanCount + 1} - Không phát hiện khuôn mặt`, result);
-        setFaceBox(null);
-        setFaceQuality(0);
+        // KHÔNG có mặt trong frame HOẶC chất lượng quá thấp - không so sánh, không đếm "khách mới"
+        console.log(`[NO FACE] Scan #${scanCount + 1} - Không phát hiện khuôn mặt hoặc chất lượng quá thấp`, result);
+        setFaceBox(result.face_box || null); // Vẫn hiển thị box nếu có (để user biết vị trí)
+        setFaceQuality(result.face_quality || 0);
         setNoFaceCount(prev => prev + 1);
-        // Không tăng noMatchCount vì chưa có mặt để so sánh
+        // QUAN TRỌNG: Không tăng noMatchCount vì chưa có mặt chính xác để so sánh
+        // Chỉ reset noMatchCount khi có mặt thật
         return;
       }
       
@@ -757,8 +758,8 @@ const FaceRecognition = () => {
                   justifyContent: 'center',
                   mb: 2,
                   position: 'relative',
-                  border: isScanning ? '3px solid' : 'none',
-                  borderColor: isScanning ? 'primary.main' : 'transparent',
+                  border: 'none',
+                  borderColor: 'transparent',
                 }}
               >
                 {!isCameraOpen && (
@@ -785,138 +786,7 @@ const FaceRecognition = () => {
                       }}
                     />
                     
-                    {/* Face bounding box - Khung mặt detect được */}
-                    {faceBox && videoRef.current && (() => {
-                      // Video bị mirror (scaleX(-1)), cần tính ngược left
-                      const videoW = videoRef.current.videoWidth || 640;
-                      const videoH = videoRef.current.videoHeight || 480;
-                      const boxW = ((faceBox[2] - faceBox[0]) / videoW) * 100;
-                      const boxH = ((faceBox[3] - faceBox[1]) / videoH) * 100;
-                      // Mirror: left trở thành 100% - right
-                      const mirroredLeft = 100 - ((faceBox[2] / videoW) * 100);
-                      const topPercent = (faceBox[1] / videoH) * 100;
-                      
-                      return (
-                        <Box
-                          sx={{
-                            position: 'absolute',
-                            left: `${mirroredLeft}%`,
-                            top: `${topPercent}%`,
-                            width: `${boxW}%`,
-                            height: `${boxH}%`,
-                            border: '4px solid',
-                            borderColor: recognitionResult?.matched 
-                              ? '#4CAF50' 
-                              : faceQuality > 50 
-                                ? '#2196F3' 
-                                : faceQuality > 30 
-                                  ? '#FF9800'
-                                  : '#f44336',
-                            borderRadius: '12px',
-                            pointerEvents: 'none',
-                            boxShadow: recognitionResult?.matched 
-                              ? '0 0 25px rgba(76,175,80,0.7), inset 0 0 20px rgba(76,175,80,0.2)' 
-                              : '0 0 15px rgba(33,150,243,0.5)',
-                            transition: 'all 0.1s ease-out',
-                            zIndex: 20,
-                          }}
-                        >
-                          {/* Quality score badge */}
-                          <Box
-                            sx={{
-                              position: 'absolute',
-                              top: -28,
-                              left: '50%',
-                              transform: 'translateX(-50%)',
-                              bgcolor: faceQuality > 50 ? '#4CAF50' : faceQuality > 30 ? '#FF9800' : '#f44336',
-                              color: 'white',
-                              px: 1.5,
-                              py: 0.5,
-                              borderRadius: '8px',
-                              fontSize: '0.8rem',
-                              fontWeight: 'bold',
-                              whiteSpace: 'nowrap',
-                              boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
-                            }}
-                          >
-                            {faceQuality.toFixed(0)}%
-                          </Box>
-                        </Box>
-                      );
-                    })()}
                     
-                    {/* Guide frame khi chưa detect được mặt */}
-                    {!faceBox && isScanning && (
-                      <Box
-                        sx={{
-                          position: 'absolute',
-                          top: '50%',
-                          left: '50%',
-                          transform: 'translate(-50%, -50%)',
-                          width: '45%',
-                          height: '60%',
-                          border: '2px dashed',
-                          borderColor: 'grey.500',
-                          borderRadius: 2,
-                          pointerEvents: 'none',
-                          opacity: 0.5,
-                        }}
-                      />
-                    )}
-
-                    {/* Corner markers - Góc khung */}
-                    {['top-left', 'top-right', 'bottom-left', 'bottom-right'].map((corner) => (
-                      <Box
-                        key={corner}
-                        sx={{
-                          position: 'absolute',
-                          width: 30,
-                          height: 30,
-                          borderColor: isScanning ? 'success.main' : 'white',
-                          ...(corner === 'top-left' && {
-                            top: 15,
-                            left: 15,
-                            borderTop: '4px solid',
-                            borderLeft: '4px solid',
-                          }),
-                          ...(corner === 'top-right' && {
-                            top: 15,
-                            right: 15,
-                            borderTop: '4px solid',
-                            borderRight: '4px solid',
-                          }),
-                          ...(corner === 'bottom-left' && {
-                            bottom: 50,
-                            left: 15,
-                            borderBottom: '4px solid',
-                            borderLeft: '4px solid',
-                          }),
-                          ...(corner === 'bottom-right' && {
-                            bottom: 50,
-                            right: 15,
-                            borderBottom: '4px solid',
-                            borderRight: '4px solid',
-                          }),
-                        }}
-                      />
-                    ))}
-
-                    {/* Scan line animation */}
-                    {isScanning && (
-                      <Box
-                        sx={{
-                          position: 'absolute',
-                          left: '27.5%',
-                          width: '45%',
-                          height: '3px',
-                          bgcolor: 'success.main',
-                          boxShadow: '0 0 10px #4caf50',
-                          animation: 'scanLine 2s ease-in-out infinite',
-                          borderRadius: 1,
-                        }}
-                      />
-                    )}
-
                     {/* Status indicator */}
                     <Box
                       sx={{
@@ -1113,6 +983,26 @@ const FaceRecognition = () => {
               <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
                 <PersonIcon /> Kết quả nhận diện
               </Typography>
+
+              {/* Fallback khi camera mở nhưng không quét và không có kết quả */}
+              {!recognitionResult && !isNewCustomer && !isScanning && isCameraOpen && (
+                <Paper
+                  variant="outlined"
+                  sx={{
+                    p: 4,
+                    textAlign: 'center',
+                    bgcolor: '#f5f5f5',
+                    borderStyle: 'dashed',
+                  }}
+                >
+                  <Typography variant="h6" sx={{ mb: 1 }}>
+                    Camera đang mở
+                  </Typography>
+                  <Typography color="text.secondary">
+                    Nhấn "Tiếp tục quét" để tiếp tục nhận diện hoặc đổi camera nếu cần.
+                  </Typography>
+                </Paper>
+              )}
 
               {!recognitionResult && !isScanning && !isCameraOpen && (
                 <Paper
@@ -1666,12 +1556,6 @@ const FaceRecognition = () => {
             0% { opacity: 1; box-shadow: 0 0 20px rgba(25, 118, 210, 0.5); }
             50% { opacity: 0.7; box-shadow: 0 0 30px rgba(76, 175, 80, 0.7); }
             100% { opacity: 1; box-shadow: 0 0 20px rgba(25, 118, 210, 0.5); }
-          }
-          @keyframes scanLine {
-            0% { top: 20%; opacity: 0; }
-            10% { opacity: 1; }
-            90% { opacity: 1; }
-            100% { top: 75%; opacity: 0; }
           }
         `}
       </style>

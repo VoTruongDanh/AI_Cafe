@@ -287,8 +287,8 @@ EMBEDDING_CACHE = {}  # {path: {"embedding": np.array, "timestamp": float}}
 CACHE_EXPIRY = 3600  # 1 giờ
 
 # Ngưỡng nhận diện - ĐÃ TINH CHỈNH
-SIMILARITY_THRESHOLD = 0.55  # Cosine similarity >= 0.55 = match (giảm từ 0.6)
-DISTANCE_THRESHOLD = 0.9     # Euclidean distance < 0.9 = match (backup metric)
+SIMILARITY_THRESHOLD = 0.75  # Cosine similarity >= 0.75 = match (siết chặt)
+DISTANCE_THRESHOLD = 0.70    # Euclidean distance < 0.7 = match (backup metric chặt hơn)
 
 
 def calculate_face_quality(box, img_width, img_height, prob) -> float:
@@ -545,7 +545,7 @@ def get_face_with_box(image_input, use_cache: bool = True, cache_key: str = None
         print(f"[INFO] Face detected ({detection_method}): box=[{x1},{y1},{x2},{y2}], prob={prob:.2f}, quality={best_quality:.1f}")
         
         # Crop face với margin
-        margin = 30
+        margin = 20
         x1_crop = max(0, x1 - margin)
         y1_crop = max(0, y1 - margin)
         x2_crop = min(img_width, x2 + margin)
@@ -776,7 +776,8 @@ def face_recognize(req: FaceRecognizeRequest):
             cache_key=None
         )
         
-        if camera_embedding is None:
+        # === VALIDATION: CHỈ SO SÁNH KHI DETECT ĐƯỢC MẶT CHÍNH XÁC ===
+        if camera_embedding is None or camera_face_info is None:
             for f in temp_files:
                 try: os.remove(f)
                 except: pass
@@ -787,10 +788,33 @@ def face_recognize(req: FaceRecognizeRequest):
                 "processing_time_ms": int((time.time() - start_time) * 1000)
             }
         
+        # Kiểm tra chất lượng mặt - CHỈ SO SÁNH KHI CHẤT LƯỢNG ĐẠT NGƯỠNG
         quality_score = camera_face_info.get('quality_score', 0)
-        print(f"[INFO] Camera face detected (confidence: {camera_face_info.get('confidence', 0):.2f}, quality: {quality_score:.1f})")
+        confidence = camera_face_info.get('confidence', 0)
+        face_box = camera_face_info.get('box')
         
-        # 3. So sánh với từng customer
+        # Ngưỡng tối thiểu để coi là "mặt chính xác"
+        MIN_QUALITY_THRESHOLD = 50.0  # Điểm chất lượng tối thiểu (yêu cầu mặt rõ >50%)
+        MIN_CONFIDENCE_THRESHOLD = 0.5  # Độ tin cậy detection tối thiểu
+        
+        # Nếu chất lượng quá thấp -> không phải mặt thật, không so sánh
+        if quality_score < MIN_QUALITY_THRESHOLD or confidence < MIN_CONFIDENCE_THRESHOLD:
+            print(f"[WARNING] Face quality too low (quality: {quality_score:.1f}, confidence: {confidence:.2f}) - skipping comparison")
+            for f in temp_files:
+                try: os.remove(f)
+                except: pass
+            return {
+                "matched": False,
+                "face_detected": False,  # Đánh dấu là KHÔNG có mặt để frontend không đếm
+                "face_box": face_box,  # Vẫn trả về box để UI hiển thị (nếu có)
+                "face_quality": round(quality_score, 1),
+                "message": f"Khuôn mặt không rõ ràng (chất lượng: {quality_score:.1f}%). Vui lòng đưa mặt vào giữa khung hình và đảm bảo đủ ánh sáng.",
+                "processing_time_ms": int((time.time() - start_time) * 1000)
+            }
+        
+        print(f"[INFO] Camera face detected (confidence: {confidence:.2f}, quality: {quality_score:.1f}) - Proceeding with comparison")
+        
+        # 3. So sánh với từng customer (CHỈ KHI ĐÃ VALIDATE MẶT CHÍNH XÁC)
         matches = []
         
         for customer in req.customers:
@@ -804,6 +828,8 @@ def face_recognize(req: FaceRecognizeRequest):
                 use_cache=True,
                 cache_key=avatar_file_path
             )
+            
+            avatar_quality = avatar_face_info.get("quality_score", 0) if avatar_face_info else 0
             
             if avatar_embedding is None:
                 print(f"[WARNING] No face in avatar for customer {customer.id}: {customer.name}")
@@ -823,7 +849,8 @@ def face_recognize(req: FaceRecognizeRequest):
                     "customer_name": customer.name,
                     "cosine_similarity": similarity['cosine_similarity'],
                     "euclidean_distance": similarity['euclidean_distance'],
-                    "confidence": round(similarity['cosine_similarity'] * 100, 1)
+                    "confidence": round(similarity['cosine_similarity'] * 100, 1),
+                    "avatar_quality": round(avatar_quality, 1)
                 })
         
         # Cleanup temp files
@@ -859,6 +886,7 @@ def face_recognize(req: FaceRecognizeRequest):
                 "customer_id": best_match["customer_id"],
                 "confidence": best_match["confidence"],
                 "cosine_similarity": round(best_match["cosine_similarity"], 4),
+                "avatar_quality": best_match.get("avatar_quality", 0),
                 "message": f"Đã nhận diện: {best_match['customer_name']}",
                 "all_matches": matches[:3],
             }

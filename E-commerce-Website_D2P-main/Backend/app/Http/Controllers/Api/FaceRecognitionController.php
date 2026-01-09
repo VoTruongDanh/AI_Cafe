@@ -7,6 +7,7 @@ use App\Models\Order;
 use App\Models\OrderItem;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\DB;
 use App\Http\Controllers\Controller;
 use OpenApi\Annotations as OA;
@@ -124,6 +125,31 @@ class FaceRecognitionController extends Controller
                     
                     // Lấy 5 sản phẩm gần nhất từ đơn hàng
                     $recentProducts = $this->getRecentProducts($result['customer_id']);
+                    
+                    // So sánh chất lượng ảnh: nếu ảnh mới tốt hơn avatar cũ -> cập nhật avatar
+                    $newQuality = $baseResponse['face_quality'] ?? 0;
+                    $oldQuality = $result['avatar_quality'] ?? null;
+                    $hasCropped = !empty($baseResponse['cropped_face']);
+
+                    // Chỉ cập nhật avatar nếu:
+                    // 1) Có số đo chất lượng avatar cũ
+                    // 2) Ảnh mới rõ ràng (>= 40%)
+                    // 3) Ảnh mới tốt hơn ảnh cũ ít nhất 5%
+                    if ($matchedCustomer && $hasCropped && $oldQuality !== null) {
+                        $betterEnough = $newQuality >= ($oldQuality + 5);
+                        $clearEnough  = $newQuality >= 40;
+                        if ($betterEnough && $clearEnough) {
+                            try {
+                                $avatarPath = $this->saveCroppedAvatar($baseResponse['cropped_face'], $matchedCustomer->id);
+                                if ($avatarPath) {
+                                    $matchedCustomer->avatar = $avatarPath;
+                                    $matchedCustomer->save();
+                                }
+                            } catch (\Exception $e) {
+                                \Log::warning('Không thể cập nhật avatar tự động: ' . $e->getMessage());
+                            }
+                        }
+                    }
                     
                     return response()->json(array_merge($baseResponse, [
                         'matched' => true,
@@ -317,5 +343,36 @@ class FaceRecognitionController extends Controller
             ->toArray();
 
         return $recentOrderItems;
+    }
+
+    /**
+     * Lưu ảnh face đã crop thành avatar mới
+     */
+    private function saveCroppedAvatar(string $croppedFaceBase64, int $customerId): ?string
+    {
+        // Loại bỏ prefix data:image
+        if (str_starts_with($croppedFaceBase64, 'data:image')) {
+            $croppedFaceBase64 = substr($croppedFaceBase64, strpos($croppedFaceBase64, ',') + 1);
+        }
+
+        $data = base64_decode($croppedFaceBase64);
+        if (!$data) {
+            return null;
+        }
+
+        $uploadDir = public_path('uploads/avatars');
+        if (!File::exists($uploadDir)) {
+            File::makeDirectory($uploadDir, 0755, true);
+        }
+
+        $fileName = 'avatar_' . $customerId . '_' . time() . '.jpeg';
+        $filePath = $uploadDir . DIRECTORY_SEPARATOR . $fileName;
+
+        if (file_put_contents($filePath, $data) === false) {
+            return null;
+        }
+
+        // Đường dẫn lưu trong DB (relative từ public/)
+        return '/uploads/avatars/' . $fileName;
     }
 }
