@@ -193,6 +193,11 @@ Route::get('products/{product}/questions', [\App\Http\Controllers\Api\ProductQue
 
 // Admin routes
 Route::prefix('admin')->middleware(['auth:sanctum', 'role.admin'])->group(function () {
+    // TEST ROUTE - Remove after debugging
+    Route::get('test-route', function() {
+        \Log::info('[TEST] Test route called');
+        return response()->json(['message' => 'Test route works!']);
+    });
     // Dashboard
     Route::get('dashboard/statistics', [AdminDashboardController::class, 'getStatistics']);
     Route::get('dashboard/today-statistics', [AdminDashboardController::class, 'getTodayStatistics']);

@@ -14,12 +14,13 @@ class Authenticate extends Middleware
      */
     protected function redirectTo($request)
     {
-        // For API requests, return null to trigger JSON unauthenticated response
-        if ($request->expectsJson() || $request->is('api/*')) {
+        // Luôn trả null cho API routes để trả JSON response thay vì redirect
+        $path = $request->path();
+        if ($request->expectsJson() || $request->is('api/*') || strpos($path, 'api/') === 0) {
             return null;
         }
         
-        // For web requests, you can add a login route if needed
+        // For web requests, return null (không có route login)
         return null;
     }
 }

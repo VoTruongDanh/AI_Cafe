@@ -68,51 +68,81 @@ class FaceRecognitionController extends Controller
      */
     public function recognize(Request $request)
     {
+        \Log::info('[FaceRecognition] recognize() called', [
+            'method' => $request->method(),
+            'path' => $request->path(),
+            'url' => $request->fullUrl(),
+            'has_token' => $request->bearerToken() ? 'yes' : 'no',
+            'user' => $request->user() ? $request->user()->id : 'null'
+        ]);
+        
         $this->ensureAdmin($request);
 
-        $request->validate([
-            'image_base64' => ['required', 'string'],
-        ]);
+        try {
+            $request->validate([
+                'image_base64' => ['required', 'string'],
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            \Log::error('[FaceRecognition] Validation failed', [
+                'errors' => $e->errors()
+            ]);
+            throw $e;
+        }
 
         $imageBase64 = $request->input('image_base64');
+        \Log::info('[FaceRecognition] Image received', [
+            'image_length' => strlen($imageBase64),
+            'image_preview' => substr($imageBase64, 0, 50) . '...'
+        ]);
         // Chuẩn bị cache customers cho AI Service nếu chưa có hoặc quá cũ
         $customers = User::whereNotNull('avatar')
             ->where('avatar', '!=', '')
             ->select('id', 'name', 'email', 'phone', 'avatar', 'loyalty_tier', 'loyalty_points', 'created_at')
             ->get();
 
-        if ($customers->isEmpty()) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Không có khách hàng nào có ảnh đại diện trong hệ thống'
-            ], 404);
-        }
+        \Log::info('[FaceRecognition] Customers query result', [
+            'count' => $customers->count(),
+            'isEmpty' => $customers->isEmpty()
+        ]);
 
-        // Cache khách hàng lên AI Service (gọi nhẹ, chỉ gửi danh sách 1 lần per request; AI giữ RAM, frontend không phải gửi liên tục)
-        try {
-            Http::timeout(15)
-                ->withoutVerifying()
-                ->post($this->aiServiceUrl . '/face/cache-customers', [
-                    'customers' => $customers->map(function ($customer) {
-                        return [
-                            'id' => $customer->id,
-                            'name' => $customer->name,
-                            'avatar_url' => url($customer->avatar),
-                            'avatar_path' => $customer->avatar,
-                        ];
-                    })->toArray()
-                ]);
-        } catch (\Exception $e) {
-            // Không chặn flow nếu cache thất bại; tiếp tục recognize
+        // Nếu chưa có khách hàng nào có avatar, vẫn cho phép detect face nhưng không match được
+        // Cache khách hàng lên AI Service (chỉ cache nếu có customers)
+        if (!$customers->isEmpty()) {
+            try {
+                Http::timeout(15)
+                    ->withoutVerifying()
+                    ->post($this->aiServiceUrl . '/face/cache-customers', [
+                        'customers' => $customers->map(function ($customer) {
+                            return [
+                                'id' => $customer->id,
+                                'name' => $customer->name,
+                                'avatar_url' => url($customer->avatar),
+                                'avatar_path' => $customer->avatar,
+                            ];
+                        })->toArray()
+                    ]);
+            } catch (\Exception $e) {
+                // Không chặn flow nếu cache thất bại; tiếp tục recognize
+                \Log::warning('[FaceRecognition] Failed to cache customers', ['error' => $e->getMessage()]);
+            }
+        } else {
+            \Log::info('[FaceRecognition] No customers with avatar - will still detect face but no matching');
         }
 
         // Gửi request đến AI Service để nhận diện (chỉ gửi ảnh, không gửi lại customers)
         try {
+            \Log::info('[FaceRecognition] Calling AI Service', ['url' => $this->aiServiceUrl . '/face/recognize']);
             $response = Http::timeout(30)
                 ->withoutVerifying()
                 ->post($this->aiServiceUrl . '/face/recognize', [
                     'image_base64' => $imageBase64
                 ]);
+            
+            \Log::info('[FaceRecognition] AI Service response', [
+                'status' => $response->status(),
+                'successful' => $response->successful(),
+                'has_body' => !empty($response->body())
+            ]);
 
             if ($response->successful()) {
                 $result = $response->json();
@@ -126,14 +156,20 @@ class FaceRecognitionController extends Controller
                     'face_size' => $result['face_size'] ?? null,
                     'cropped_face' => $result['cropped_face'] ?? null,
                     'processing_time_ms' => $result['processing_time_ms'] ?? 0,
+                    'no_customers_in_db' => $customers->isEmpty(), // Thông báo cho frontend biết chưa có customers
                 ];
                 
                 if (isset($result['matched']) && $result['matched']) {
                     // Tìm thấy khách hàng
                     $matchedCustomer = $customers->firstWhere('id', $result['customer_id']);
                     
-                    // Lấy 5 sản phẩm gần nhất từ đơn hàng
-                    $recentProducts = $this->getRecentProducts($result['customer_id']);
+                    // Nếu không tìm thấy customer trong collection (có thể do cache không đồng bộ)
+                    if (!$matchedCustomer && isset($result['customer_id'])) {
+                        $matchedCustomer = User::find($result['customer_id']);
+                    }
+                    
+                    // Lấy 5 sản phẩm gần nhất từ đơn hàng (chỉ khi có customer)
+                    $recentProducts = $matchedCustomer ? $this->getRecentProducts($result['customer_id']) : [];
                     
                     // Auto-update avatar CHỈ khi CỰC KỲ CHẮC CHẮN
                     // Nếu không đủ điều kiện khắt khe → NV quyết định qua nút thủ công
@@ -178,18 +214,33 @@ class FaceRecognitionController extends Controller
                     ]));
                 }
                 
+                // Nếu không có customers trong DB, thông báo rõ ràng
+                $message = $customers->isEmpty() 
+                    ? 'Chưa có khách hàng nào có ảnh đại diện trong hệ thống. Vui lòng thêm khách hàng mới.'
+                    : ($result['message'] ?? 'Không tìm thấy khách hàng phù hợp');
+                
                 return response()->json(array_merge($baseResponse, [
                     'matched' => false,
-                    'message' => $result['message'] ?? 'Không tìm thấy khách hàng phù hợp'
+                    'message' => $message
                 ]));
             }
 
+            \Log::warning('[FaceRecognition] AI Service response not successful', [
+                'status' => $response->status(),
+                'body' => substr($response->body(), 0, 200)
+            ]);
             return response()->json([
                 'success' => false,
                 'message' => 'AI Service không phản hồi'
             ], 500);
 
         } catch (\Exception $e) {
+            \Log::error('[FaceRecognition] Exception in recognize()', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => substr($e->getTraceAsString(), 0, 500)
+            ]);
             return response()->json([
                 'success' => false,
                 'message' => 'Lỗi kết nối AI Service: ' . $e->getMessage()

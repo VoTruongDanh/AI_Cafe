@@ -32,6 +32,18 @@ export default defineConfig({
         target: 'http://localhost:8000', // Backend chạy HTTP (artisan serve không hỗ trợ HTTPS)
         changeOrigin: true,
         secure: false,
+        ws: true, // Enable WebSocket proxy
+        configure: (proxy, _options) => {
+          proxy.on('error', (err, _req, _res) => {
+            console.log('[Vite Proxy] Error:', err.message);
+          });
+          proxy.on('proxyReq', (proxyReq, req, _res) => {
+            console.log('[Vite Proxy] Forwarding:', req.method, req.url, '-> http://localhost:8000' + req.url);
+          });
+          proxy.on('proxyRes', (proxyRes, req, _res) => {
+            console.log('[Vite Proxy] Response:', proxyRes.statusCode, req.url);
+          });
+        },
       },
     },
   },

@@ -2,12 +2,12 @@ import axios from 'axios'
 
 /**
  * Lấy API URL đúng cách:
- * - Development: sử dụng relative path '/api' để đi qua Vite proxy
+ * - Development: sử dụng absolute URL để bypass Vite proxy (tránh lỗi 404 với HTTPS)
  * - Production: sử dụng VITE_API_URL từ .env
  */
 export const getApiUrl = () => {
   return import.meta.env.DEV 
-    ? '/api'  // Development: sử dụng Vite proxy
+    ? 'http://localhost:8000/api'  // Development: dùng absolute URL để bypass proxy
     : (import.meta.env.VITE_API_URL || 'http://localhost:8000/api')  // Production
 }
 
@@ -17,6 +17,7 @@ const api = axios.create({
   baseURL: API_URL,
   headers: {
     'Content-Type': 'application/json',
+    'Accept': 'application/json',  // Quan trọng: Báo cho Laravel biết đây là API request
   },
 })
 
@@ -287,7 +288,12 @@ export const adminUsersApi = {
 export const faceRecognitionApi = {
   checkStatus: () => api.get('/admin/face/status'),
   getCustomers: () => api.get('/admin/face/customers'),
-  recognize: (imageBase64) => api.post('/admin/face/recognize', { image_base64: imageBase64 }),
+  recognize: (imageBase64) => {
+    const url = `${API_URL}/admin/face/recognize`;
+    console.log('[API] Calling recognize:', url);
+    console.log('[API] Token exists:', !!localStorage.getItem('token'));
+    return api.post('/admin/face/recognize', { image_base64: imageBase64 });
+  },
   detect: (imageBase64) => api.post('/admin/face/detect', { image_base64: imageBase64 }), // Debug
   clearCache: () => api.post('/admin/face/clear-cache'),
   updateAvatar: (customerId, croppedFace) => api.post('/admin/face/update-avatar', { 

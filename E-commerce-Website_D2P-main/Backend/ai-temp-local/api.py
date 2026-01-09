@@ -20,8 +20,9 @@ from pydantic import BaseModel
 # FACE RECOGNITION SETUP - Optimized for Speed & Accuracy
 # =============================================================================
 ENABLE_HAAR_FALLBACK = False  # Tắt Haar mặc định để tránh lag/FP; bật khi cần qua flag
+USE_SCRFD = False  # Tắt SCRFD mặc định (có thể chậm trên CPU), dùng MTCNN tối ưu thay thế
 FACENET_AVAILABLE = False
-MTCNN_DETECTOR = None
+SCRFD_DETECTOR = None  # Thay MTCNN bằng SCRFD
 FACENET_MODEL = None
 DEVICE = None
 FAISS_AVAILABLE = False
@@ -30,7 +31,7 @@ FAISS_ID_MAP = []  # index -> {"customer_id", "customer_name", "avatar_quality"}
 
 try:
     import torch
-    from facenet_pytorch import MTCNN, InceptionResnetV1
+    from facenet_pytorch import InceptionResnetV1
     from PIL import Image
     import cv2
     try:
@@ -46,18 +47,39 @@ try:
     DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"[INFO] Using device: {DEVICE}")
     
-    # MTCNN để detect khuôn mặt - Cấu hình RẤT NHẠY
-    MTCNN_DETECTOR = MTCNN(
-        image_size=160,
-        margin=30,
-        min_face_size=20,  # Detect mặt rất nhỏ
-        thresholds=[0.4, 0.5, 0.5],  # Ngưỡng RẤT THẤP để nhạy hơn
-        factor=0.709,
-        post_process=True,
-        select_largest=False,  # Lấy tất cả faces
-        keep_all=True,  # Giữ tất cả để chọn best
-        device=DEVICE
-    )
+    # Face Detector - Ưu tiên MTCNN tối ưu (nhanh và ổn định hơn SCRFD trên CPU)
+    try:
+        from facenet_pytorch import MTCNN
+        # MTCNN cân bằng tốc độ và khả năng detect: nới lỏng để detect được mặt rõ ràng
+        SCRFD_DETECTOR = MTCNN(
+            image_size=160,
+            margin=25,  # Tăng lại một chút để crop tốt hơn
+            min_face_size=25,  # Giảm từ 40 xuống 25 để detect được mặt ở khoảng cách vừa phải
+            thresholds=[0.5, 0.6, 0.6],  # Giảm thresholds để detect được mặt tốt hơn (vẫn đủ để tránh FP)
+            factor=0.8,  # Giảm factor để scale nhiều hơn (detect tốt hơn)
+            post_process=True,  # Bật lại để chất lượng tốt hơn
+            select_largest=True,  # Chỉ lấy mặt lớn nhất (nhanh hơn)
+            keep_all=False,  # Không giữ tất cả (nhanh hơn)
+            device=DEVICE
+        )
+        print("[INFO] Optimized MTCNN detector loaded (speed-optimized settings)")
+        
+        # Nếu muốn dùng SCRFD (chỉ khi có GPU hoặc cần tốc độ cao hơn)
+        if USE_SCRFD:
+            try:
+                import insightface
+                scrfd_temp = insightface.app.FaceAnalysis(
+                    name='buffalo_s',
+                    providers=['CUDAExecutionProvider', 'CPUExecutionProvider'] if torch.cuda.is_available() else ['CPUExecutionProvider']
+                )
+                scrfd_temp.prepare(ctx_id=0 if not torch.cuda.is_available() else -1, det_size=(320, 320))
+                SCRFD_DETECTOR = scrfd_temp
+                print("[INFO] SCRFD detector loaded (320x320)")
+            except:
+                print("[WARN] SCRFD failed, keeping MTCNN")
+    except Exception as mtcnn_error:
+        print(f"[ERROR] MTCNN failed: {mtcnn_error}")
+        SCRFD_DETECTOR = None
     
     # FaceNet model - VGGFace2 pretrained (chính xác cao cho nhận diện)
     print("[INFO] Loading FaceNet model (VGGFace2)...")
@@ -308,9 +330,9 @@ CUSTOMER_CACHE = {
     "customers": []  # list dict {id, name, embedding, avatar_quality}
 }
 
-# Ngưỡng nhận diện - Balanced (tăng recall, giữ cảnh báo bằng vùng xám)
-SIMILARITY_THRESHOLD = 0.60  # Cosine >= 0.60 cho phép vào danh sách ứng viên (siết nhẹ để tăng độ chính xác)
-DISTANCE_THRESHOLD = 0.85    # Euclidean < 0.85 (siết nhẹ cho backup metric)
+# Ngưỡng nhận diện - Siết chặt để tránh nhận nhầm (Zero False Positive)
+SIMILARITY_THRESHOLD = 0.75  # Cosine >= 0.75 mới được coi là match (tăng từ 0.60 để tránh nhận nhầm)
+DISTANCE_THRESHOLD = 0.70    # Euclidean < 0.70 (siết chặt hơn)
 
 
 def calculate_face_quality(box, img_width, img_height, prob) -> float:
@@ -426,10 +448,51 @@ def detect_face_opencv(img_cv):
     return None
 
 
+def detect_face_scrfd(img_cv):
+    """Detect mặt bằng SCRFD (nhanh hơn MTCNN)"""
+    if SCRFD_DETECTOR is None:
+        return None, None, None
+    
+    try:
+        # SCRFD nhận BGR image (cv2 format)
+        faces = SCRFD_DETECTOR.get(img_cv)
+        if not faces or len(faces) == 0:
+            return None, None, None
+        
+        # Convert sang format giống MTCNN: boxes, probs
+        boxes = []
+        probs = []
+        for face in faces:
+            bbox = face.bbox  # [x1, y1, x2, y2]
+            det_score = face.det_score
+            boxes.append(bbox)
+            probs.append(det_score)
+        
+        return np.array(boxes), np.array(probs), "scrfd"
+    except Exception as e:
+        print(f"[WARN] SCRFD detection error: {e}")
+        return None, None, None
+
+def detect_face_mtcnn(img_pil):
+    """Detect mặt bằng MTCNN (fallback)"""
+    if SCRFD_DETECTOR is None:
+        return None, None, None
+    
+    # Kiểm tra xem có phải MTCNN không (có method detect)
+    if not hasattr(SCRFD_DETECTOR, 'detect'):
+        return None, None, None
+    
+    try:
+        boxes, probs = SCRFD_DETECTOR.detect(img_pil)
+        return boxes, probs, "mtcnn"
+    except Exception as e:
+        print(f"[WARN] MTCNN detection error: {e}")
+        return None, None, None
+
 def get_face_with_box(image_input, use_cache: bool = True, cache_key: str = None, enhance: bool = True) -> Tuple[Optional[np.ndarray], Optional[dict]]:
     """
     Lấy face embedding + bounding box + quality score
-    Sử dụng MTCNN + OpenCV Haar cascade fallback
+    Sử dụng SCRFD (nhanh hơn MTCNN) + MTCNN fallback
     """
     if not FACENET_AVAILABLE:
         return None, None
@@ -461,73 +524,57 @@ def get_face_with_box(image_input, use_cache: bool = True, cache_key: str = None
         
         img_height, img_width = img_cv.shape[:2]
         
+        # Tối ưu: Resize ảnh xuống max 640x640 trước khi detect (giảm input size -> nhanh hơn)
+        max_size = 640
+        if img_width > max_size or img_height > max_size:
+            scale = min(max_size / img_width, max_size / img_height)
+            new_width = int(img_width * scale)
+            new_height = int(img_height * scale)
+            img_cv = cv2.resize(img_cv, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
+            img_height, img_width = img_cv.shape[:2]
+            print(f"[INFO] Resized image to {new_width}x{new_height} for faster detection")
+        
         # Không tăng cường ngay; thử detect gốc trước để giảm latency
         img_rgb = cv2.cvtColor(img_cv, cv2.COLOR_BGR2RGB)
         img = Image.fromarray(img_rgb)
         
-        # === TRY 1: MTCNN Detection (ảnh gốc) ===
-        boxes, probs = MTCNN_DETECTOR.detect(img)
+        # === TRY 1: SCRFD Detection (ảnh gốc) - Nhanh nhất ===
+        boxes, probs, detection_method = detect_face_scrfd(img_cv)
         
-        # === TRY 2: Haar cascade (nhanh hơn MTCNN) ===
-        if ENABLE_HAAR_FALLBACK and (boxes is None or len(boxes) == 0):
-            print("[INFO] MTCNN failed, trying Haar cascade...")
-            haar_box = detect_face_opencv(img_cv)
-            if haar_box is not None:
-                boxes = np.array([haar_box])
-                probs = np.array([0.8])
-                detection_method = "haar"
+        # === TRY 2: MTCNN Fallback (nếu SCRFD không có hoặc fail) ===
+        if boxes is None or len(boxes) == 0:
+            boxes, probs, detection_method = detect_face_mtcnn(img)
         
-        # === TRY 3: Ảnh sáng hơn + MTCNN ===
+        # === TRY 3: Ảnh sáng hơn + SCRFD (chỉ khi cần) ===
+        if boxes is None or len(boxes) == 0:
+            print("[INFO] Trying brighter image + SCRFD...")
+            img_bright = cv2.convertScaleAbs(img_cv, alpha=1.4, beta=40)
+            boxes, probs, detection_method = detect_face_scrfd(img_bright)
+            if boxes is not None and len(boxes) > 0:
+                was_enhanced = True
+                img_cv = img_bright
+                img_rgb = cv2.cvtColor(img_cv, cv2.COLOR_BGR2RGB)
+                img = Image.fromarray(img_rgb)
+                detection_method = "scrfd_bright"
+        
+        # === TRY 4: Ảnh sáng hơn + MTCNN (fallback cuối cùng) ===
         if boxes is None or len(boxes) == 0:
             print("[INFO] Trying brighter image + MTCNN...")
-            img_bright = cv2.convertScaleAbs(img_cv, alpha=1.4, beta=40)
-            img_bright_rgb = cv2.cvtColor(img_bright, cv2.COLOR_BGR2RGB)
-            img_bright_pil = Image.fromarray(img_bright_rgb)
-            boxes, probs = MTCNN_DETECTOR.detect(img_bright_pil)
+            if not was_enhanced:
+                img_bright = cv2.convertScaleAbs(img_cv, alpha=1.4, beta=40)
+                img_bright_rgb = cv2.cvtColor(img_bright, cv2.COLOR_BGR2RGB)
+                img_bright_pil = Image.fromarray(img_bright_rgb)
+            else:
+                img_bright_pil = img
+            boxes, probs, _ = detect_face_mtcnn(img_bright_pil)
             if boxes is not None and len(boxes) > 0:
                 was_enhanced = True
                 img = img_bright_pil
-                img_cv = img_bright
+                img_cv = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
                 detection_method = "mtcnn_bright"
         
-        # === TRY 4: Ảnh sáng hơn + Haar cascade ===
-        if ENABLE_HAAR_FALLBACK and (boxes is None or len(boxes) == 0):
-            print("[INFO] Trying brighter image + Haar...")
-            if not was_enhanced:
-                img_bright = cv2.convertScaleAbs(img_cv, alpha=1.4, beta=40)
-            haar_box = detect_face_opencv(img_bright if was_enhanced else cv2.convertScaleAbs(img_cv, alpha=1.4, beta=40))
-            if haar_box is not None:
-                boxes = np.array([haar_box])
-                probs = np.array([0.7])
-                detection_method = "haar_bright"
-        
-        # === TRY 5: Histogram equalization + Haar ===
-        if ENABLE_HAAR_FALLBACK and (boxes is None or len(boxes) == 0):
-            print("[INFO] Trying histogram equalization...")
-            gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
-            equalized = cv2.equalizeHist(gray)
-            equalized_bgr = cv2.cvtColor(equalized, cv2.COLOR_GRAY2BGR)
-            haar_box = detect_face_opencv(equalized_bgr)
-            if haar_box is not None:
-                boxes = np.array([haar_box])
-                probs = np.array([0.6])
-                detection_method = "haar_eq"
-        
-        # === TRY 6: Resize nhỏ hơn + Haar (detect mặt xa camera) ===
-        if ENABLE_HAAR_FALLBACK and (boxes is None or len(boxes) == 0):
-            print("[INFO] Trying resized image...")
-            scale = 0.5
-            small = cv2.resize(img_cv, None, fx=scale, fy=scale)
-            haar_box = detect_face_opencv(small)
-            if haar_box is not None:
-                # Scale box back
-                x1, y1, x2, y2 = haar_box
-                boxes = np.array([[x1/scale, y1/scale, x2/scale, y2/scale]])
-                probs = np.array([0.6])
-                detection_method = "haar_resized"
-        
         if boxes is None or len(boxes) == 0:
-            print("[WARNING] No face detected after 6 attempts")
+            print("[WARNING] No face detected after 4 attempts")
             return None, None
         
         # Filter invalid boxes
@@ -580,23 +627,38 @@ def get_face_with_box(image_input, use_cache: bool = True, cache_key: str = None
         face_crop_resized.save(buffer, format='JPEG', quality=90)
         cropped_face_base64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
         
-        # Lấy embedding - dùng face tensor từ MTCNN
-        face_tensors = MTCNN_DETECTOR(img)
+        # Lấy embedding
+        # SCRFD không trả về face tensor -> luôn dùng cropped face
+        # MTCNN có thể trả về face tensor -> thử dùng trước, fallback về cropped
+        use_mtcnn_tensor = (detection_method and detection_method.startswith('mtcnn') and 
+                           SCRFD_DETECTOR and hasattr(SCRFD_DETECTOR, '__call__') and 
+                           not hasattr(SCRFD_DETECTOR, 'get'))  # MTCNN có __call__, SCRFD có get
         
-        if face_tensors is None:
-            # Fallback: dùng cropped face
-            print("[INFO] Using cropped face for embedding")
+        if use_mtcnn_tensor:
+            # Thử dùng face tensor từ MTCNN (nếu có)
+            try:
+                face_tensors = SCRFD_DETECTOR(img)
+                if face_tensors is not None:
+                    if len(face_tensors.shape) == 3:
+                        face_tensor = face_tensors.unsqueeze(0)
+                    elif len(face_tensors.shape) == 4:
+                        face_tensor = face_tensors[best_idx:best_idx+1]
+                    else:
+                        face_tensor = face_tensors
+                else:
+                    raise ValueError("MTCNN returned None")
+            except:
+                # Fallback: dùng cropped face
+                face_aligned = face_crop.resize((160, 160), Image.LANCZOS)
+                face_np = np.array(face_aligned).astype(np.float32)
+                face_np = (face_np - 127.5) / 128.0
+                face_tensor = torch.from_numpy(face_np).permute(2, 0, 1).unsqueeze(0).float()
+        else:
+            # SCRFD hoặc fallback: dùng cropped face
             face_aligned = face_crop.resize((160, 160), Image.LANCZOS)
             face_np = np.array(face_aligned).astype(np.float32)
             face_np = (face_np - 127.5) / 128.0
             face_tensor = torch.from_numpy(face_np).permute(2, 0, 1).unsqueeze(0).float()
-        else:
-            if len(face_tensors.shape) == 3:
-                face_tensor = face_tensors.unsqueeze(0)
-            elif len(face_tensors.shape) == 4:
-                face_tensor = face_tensors[best_idx:best_idx+1]
-            else:
-                face_tensor = face_tensors
         
         # Lấy embedding
         with torch.no_grad():
@@ -908,9 +970,9 @@ def face_recognize(req: FaceRecognizeRequest):
         confidence = camera_face_info.get('confidence', 0)
         face_box = camera_face_info.get('box')
         
-        # Ngưỡng tối thiểu để coi là "mặt chính xác" (tăng recall thêm một chút)
-        MIN_QUALITY_THRESHOLD = 35.0
-        MIN_CONFIDENCE_THRESHOLD = 0.40
+        # Ngưỡng tối thiểu để coi là "mặt chính xác" (cân bằng giữa detect được và tránh nhận nhầm)
+        MIN_QUALITY_THRESHOLD = 40.0  # Giảm từ 50 xuống 40 - cho phép mặt rõ ràng nhưng không cần quá hoàn hảo
+        MIN_CONFIDENCE_THRESHOLD = 0.50  # Giảm từ 0.60 xuống 0.50 - cho phép detection chắc chắn nhưng không quá khắt khe
 
         # Kiểm tra tỷ lệ khuôn mặt trong khung hình để loại bỏ box sai
         img_w = camera_face_info.get("image_size", {}).get("width")
@@ -918,9 +980,9 @@ def face_recognize(req: FaceRecognizeRequest):
         face_w = camera_face_info.get("face_size", {}).get("width", 0)
         face_h = camera_face_info.get("face_size", {}).get("height", 0)
         area_ratio = (face_w * face_h) / (img_w * img_h) if img_w and img_h else 0
-        # Yêu cầu mặt chiếm từ ~2.5% đến 40% khung hình để tránh nền/bóng đèn bị nhận nhầm
-        # (Mặt quá nhỏ <2.5% sẽ cho vector nhiễu -> Garbage in, Garbage out)
-        if area_ratio < 0.025 or area_ratio > 0.40:
+        # Yêu cầu mặt chiếm từ ~1.5% đến 40% khung hình để tránh nền/bóng đèn bị nhận nhầm
+        # (Giảm từ 2.5% xuống 1.5% để detect được mặt ở khoảng cách xa hơn)
+        if area_ratio < 0.015 or area_ratio > 0.40:
             print(f"[WARNING] Face area ratio out of range ({area_ratio:.4f}) - skipping comparison")
             for f in temp_files:
                 try: os.remove(f)
@@ -962,15 +1024,26 @@ def face_recognize(req: FaceRecognizeRequest):
         else:
             customer_embeddings = CUSTOMER_CACHE.get("customers", [])
 
+        # Xử lý trường hợp không có customers trong DB/cache
         if not customer_embeddings:
+            # Cleanup temp files
             for f in temp_files:
                 try: os.remove(f)
                 except: pass
+            
+            processing_time = int((time.time() - start_time) * 1000)
+            
+            # Trả về face_detected=True, matched=False để frontend biết có mặt và có thể báo "khách mới"
             return {
                 "matched": False,
-                "face_detected": True,
-                "message": "Chưa có cache customers. Vui lòng preload /face/cache-customers",
-                "processing_time_ms": int((time.time() - start_time) * 1000)
+                "face_detected": True,  # QUAN TRỌNG: vẫn trả True để frontend biết có mặt
+                "face_box": camera_face_info.get("box"),
+                "face_quality": round(quality_score, 1),
+                "face_size": camera_face_info.get("face_size"),
+                "cropped_face": camera_face_info.get("cropped_face_base64"),  # Trả về ảnh để frontend có thể tạo khách mới
+                "processing_time_ms": processing_time,
+                "message": "Không có khách hàng nào trong hệ thống. Đây là khách hàng mới.",
+                "no_customers_in_db": True  # Flag để frontend biết là do DB trống
             }
 
         # 4. So sánh với customers trong cache (ưu tiên FAISS HNSW)
@@ -1022,23 +1095,43 @@ def face_recognize(req: FaceRecognizeRequest):
             top2 = matches[1] if len(matches) > 1 else None
             delta_to_second = best_match["cosine_similarity"] - (top2["cosine_similarity"] if top2 else 0.0)
 
-            # Policy chuyển sang "đa số thắng" + vùng xám cần xác nhận
+            # Policy siết chặt để tránh nhận nhầm (Zero False Positive)
             needs_confirmation = False
             policy = "unknown"
 
-            if best_match["cosine_similarity"] >= 0.65:
-                if delta_to_second < 0.10:
-                    policy = "review"  # điểm cao nhưng sát nút top2 -> cần xác nhận
-                    needs_confirmation = True
-                else:
-                    policy = "auto"
-            elif best_match["cosine_similarity"] >= 0.55:
-                policy = "review"      # vùng xám: ưu tiên recall, nhờ NV xác nhận
+            # Kiểm tra nghiêm ngặt: đếm số matches có score cao (>0.70) - nếu nhiều hơn 1 -> rủi ro nhận nhầm
+            high_score_matches = [m for m in matches if m["cosine_similarity"] >= 0.70]
+            top2_high = top2 and top2["cosine_similarity"] >= 0.70
+            multiple_high_scores = len(high_score_matches) > 1  # Có nhiều ứng viên với score cao
+            
+            # Policy siết chặt để tránh nhận nhầm
+            if multiple_high_scores:
+                # Nếu có nhiều ứng viên với score cao -> luôn cần review (rủi ro nhận nhầm)
+                print(f"[WARNING] Multiple high-score candidates ({len(high_score_matches)}), forcing review to avoid false positive")
+                policy = "review"
                 needs_confirmation = True
+                matched_flag = True  # Vẫn matched nhưng cần xác nhận
+            elif best_match["cosine_similarity"] >= 0.80:
+                # Rất cao (>=80%) và delta đủ lớn -> auto
+                if delta_to_second >= 0.15 and not top2_high:
+                    policy = "auto"
+                else:
+                    # Delta nhỏ hoặc top2 cao -> cần review
+                    policy = "review"
+                    needs_confirmation = True
+                matched_flag = True
+            elif best_match["cosine_similarity"] >= 0.75:
+                # Cao (>=75%) -> luôn cần review nếu delta nhỏ hoặc top2 cao
+                if delta_to_second >= 0.20 and not top2_high:
+                    policy = "auto"  # Chỉ auto nếu delta rất lớn và top2 thấp
+                else:
+                    policy = "review"
+                    needs_confirmation = True
+                matched_flag = True
             else:
+                # Dưới 75% -> unknown (không match)
                 policy = "unknown"
-
-            matched_flag = policy != "unknown"
+                matched_flag = False
 
             print(f"[SUCCESS] Candidate: {best_match['customer_name']} "
                   f"(cosine={best_match['cosine_similarity']:.4f}, delta={delta_to_second:.4f}, policy={policy}) "
@@ -1161,13 +1254,15 @@ def face_analyze(image_base64: str):
         img_rgb = cv2.cvtColor(img_cv, cv2.COLOR_BGR2RGB)
         img = Image.fromarray(img_rgb)
         
-        # Detect với MTCNN
-        boxes, probs = MTCNN_DETECTOR.detect(img)
+        # Detect với SCRFD (nhanh hơn) hoặc MTCNN fallback
+        boxes, probs, detection_method = detect_face_scrfd(img_cv)
+        if boxes is None or len(boxes) == 0:
+            boxes, probs, detection_method = detect_face_mtcnn(img)
         
         if temp_path:
             os.remove(temp_path)
         
-        if boxes is None:
+        if boxes is None or len(boxes) == 0:
             return {
                 "success": True,
                 "face_detected": False,

@@ -11,3 +11,6 @@ torchvision>=0.15.0
 numpy<2.0.0
 Pillow>=10.2.0,<10.3.0
 faiss-cpu==1.7.4
+# Face Detection - SCRFD (Faster than MTCNN)
+insightface>=0.7.3
+onnxruntime>=1.15.0

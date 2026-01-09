@@ -17,9 +17,16 @@ class EnsureWebAdminRole
      */
     public function handle(Request $request, Closure $next): Response
     {
+        \Log::info('[EnsureWebAdminRole] Middleware called', [
+            'path' => $request->path(),
+            'method' => $request->method(),
+            'has_user' => $request->user() ? 'yes' : 'no'
+        ]);
+        
         $user = $request->user();
 
         if (!$user) {
+            \Log::warning('[EnsureWebAdminRole] No user found');
             return response()->json([
                 'message' => 'Unauthenticated.'
             ], 401);

@@ -370,6 +370,22 @@ const FaceRecognition = () => {
         const effectiveQuality = Math.max(currentQuality, bestFaceQualityRef.current);
         const canCreateNew = result.face_detected && effectiveQuality >= 45;
         
+        // Xử lý trường hợp DB trống: hiện khách mới ngay sau 1 lần quét (không cần đợi 3 lần)
+        if (result.no_customers_in_db && canCreateNew) {
+          console.log(`[NEW CUSTOMER] DB empty, showing new customer immediately, quality: ${effectiveQuality.toFixed(1)}%`);
+          setIsNewCustomer(true);
+          setCapturedImage(bestFaceImageRef.current || result.cropped_face);
+          setIsScanning(false);
+          noMatchCountRef.current = MAX_SCANS_BEFORE_NEW_CUSTOMER; // Set để UI hiển thị đúng
+          setNoMatchCount(MAX_SCANS_BEFORE_NEW_CUSTOMER);
+          if (scanIntervalRef.current) {
+            clearInterval(scanIntervalRef.current);
+            scanIntervalRef.current = null;
+          }
+          setRecognitionResult(null);
+          return;
+        }
+        
         // Dùng ref để track đúng count (tránh stale closure)
         noMatchCountRef.current += 1;
         const newNoMatchCount = noMatchCountRef.current;
