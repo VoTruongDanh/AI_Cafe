@@ -2,6 +2,7 @@
 /public/build
 /public/hot
 /public/storage
+/public/uploads/avatars
 /storage/*.key
 /storage/framework/cache/*
 /storage/framework/sessions/*
