@@ -19,6 +19,7 @@ from pydantic import BaseModel
 # =============================================================================
 # FACE RECOGNITION SETUP - Optimized for Speed & Accuracy
 # =============================================================================
+ENABLE_HAAR_FALLBACK = False  # Tắt Haar mặc định để tránh lag/FP; bật khi cần qua flag
 FACENET_AVAILABLE = False
 MTCNN_DETECTOR = None
 FACENET_MODEL = None
@@ -53,9 +54,10 @@ try:
     print("[INFO] Loading FaceNet model (VGGFace2)...")
     FACENET_MODEL = InceptionResnetV1(pretrained='vggface2').eval().to(DEVICE)
     
-    # Load OpenCV Haar cascade làm fallback
-    HAAR_CASCADE = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
-    print("[INFO] Haar cascade loaded as fallback")
+    HAAR_CASCADE = None
+    if ENABLE_HAAR_FALLBACK:
+        HAAR_CASCADE = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+        print("[INFO] Haar cascade loaded as fallback")
     
     FACENET_AVAILABLE = True
     print("[INFO] Face Recognition System Ready!")
@@ -286,9 +288,9 @@ LARAVEL_PUBLIC_PATH = Path(__file__).parent.parent / "public"
 EMBEDDING_CACHE = {}  # {path: {"embedding": np.array, "timestamp": float}}
 CACHE_EXPIRY = 3600  # 1 giờ
 
-# Ngưỡng nhận diện - ĐÃ TINH CHỈNH
-SIMILARITY_THRESHOLD = 0.75  # Cosine similarity >= 0.75 = match (siết chặt)
-DISTANCE_THRESHOLD = 0.70    # Euclidean distance < 0.7 = match (backup metric chặt hơn)
+# Ngưỡng nhận diện - Balanced (tăng recall, giữ cảnh báo bằng vùng xám)
+SIMILARITY_THRESHOLD = 0.60  # Cosine >= 0.60 cho phép vào danh sách ứng viên (siết nhẹ để tăng độ chính xác)
+DISTANCE_THRESHOLD = 0.85    # Euclidean < 0.85 (siết nhẹ cho backup metric)
 
 
 def calculate_face_quality(box, img_width, img_height, prob) -> float:
@@ -382,6 +384,8 @@ def enhance_image(img_cv):
 
 def detect_face_opencv(img_cv):
     """Dùng OpenCV Haar cascade để detect face (fallback nhanh)"""
+    if not ENABLE_HAAR_FALLBACK or HAAR_CASCADE is None:
+        return None
     gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
     
     # Thử với nhiều scaleFactor và minNeighbors khác nhau
@@ -450,7 +454,7 @@ def get_face_with_box(image_input, use_cache: bool = True, cache_key: str = None
         boxes, probs = MTCNN_DETECTOR.detect(img)
         
         # === TRY 2: Haar cascade (nhanh hơn MTCNN) ===
-        if boxes is None or len(boxes) == 0:
+        if ENABLE_HAAR_FALLBACK and (boxes is None or len(boxes) == 0):
             print("[INFO] MTCNN failed, trying Haar cascade...")
             haar_box = detect_face_opencv(img_cv)
             if haar_box is not None:
@@ -472,7 +476,7 @@ def get_face_with_box(image_input, use_cache: bool = True, cache_key: str = None
                 detection_method = "mtcnn_bright"
         
         # === TRY 4: Ảnh sáng hơn + Haar cascade ===
-        if boxes is None or len(boxes) == 0:
+        if ENABLE_HAAR_FALLBACK and (boxes is None or len(boxes) == 0):
             print("[INFO] Trying brighter image + Haar...")
             if not was_enhanced:
                 img_bright = cv2.convertScaleAbs(img_cv, alpha=1.4, beta=40)
@@ -483,7 +487,7 @@ def get_face_with_box(image_input, use_cache: bool = True, cache_key: str = None
                 detection_method = "haar_bright"
         
         # === TRY 5: Histogram equalization + Haar ===
-        if boxes is None or len(boxes) == 0:
+        if ENABLE_HAAR_FALLBACK and (boxes is None or len(boxes) == 0):
             print("[INFO] Trying histogram equalization...")
             gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
             equalized = cv2.equalizeHist(gray)
@@ -495,7 +499,7 @@ def get_face_with_box(image_input, use_cache: bool = True, cache_key: str = None
                 detection_method = "haar_eq"
         
         # === TRY 6: Resize nhỏ hơn + Haar (detect mặt xa camera) ===
-        if boxes is None or len(boxes) == 0:
+        if ENABLE_HAAR_FALLBACK and (boxes is None or len(boxes) == 0):
             print("[INFO] Trying resized image...")
             scale = 0.5
             small = cv2.resize(img_cv, None, fx=scale, fy=scale)
@@ -595,7 +599,8 @@ def get_face_with_box(image_input, use_cache: bool = True, cache_key: str = None
             "face_size": {"width": x2 - x1, "height": y2 - y1},
             "cropped_face_base64": f"data:image/jpeg;base64,{cropped_face_base64}",
             "enhanced": was_enhanced,
-            "detection_method": detection_method
+            "detection_method": detection_method,
+            "image_size": {"width": img_width, "height": img_height}
         }
         
         # Cache
@@ -793,9 +798,30 @@ def face_recognize(req: FaceRecognizeRequest):
         confidence = camera_face_info.get('confidence', 0)
         face_box = camera_face_info.get('box')
         
-        # Ngưỡng tối thiểu để coi là "mặt chính xác"
-        MIN_QUALITY_THRESHOLD = 50.0  # Điểm chất lượng tối thiểu (yêu cầu mặt rõ >50%)
-        MIN_CONFIDENCE_THRESHOLD = 0.5  # Độ tin cậy detection tối thiểu
+        # Ngưỡng tối thiểu để coi là "mặt chính xác" (siết lại để tránh đếm ảnh vô nghĩa)
+        MIN_QUALITY_THRESHOLD = 45.0
+        MIN_CONFIDENCE_THRESHOLD = 0.50
+
+        # Kiểm tra tỷ lệ khuôn mặt trong khung hình để loại bỏ box sai
+        img_w = camera_face_info.get("image_size", {}).get("width")
+        img_h = camera_face_info.get("image_size", {}).get("height")
+        face_w = camera_face_info.get("face_size", {}).get("width", 0)
+        face_h = camera_face_info.get("face_size", {}).get("height", 0)
+        area_ratio = (face_w * face_h) / (img_w * img_h) if img_w and img_h else 0
+        # Yêu cầu mặt chiếm từ ~2.5% đến 40% khung hình để tránh nền/bóng đèn bị nhận nhầm
+        if area_ratio < 0.025 or area_ratio > 0.40:
+            print(f"[WARNING] Face area ratio out of range ({area_ratio:.4f}) - skipping comparison")
+            for f in temp_files:
+                try: os.remove(f)
+                except: pass
+            return {
+                "matched": False,
+                "face_detected": False,
+                "face_box": face_box,
+                "face_quality": round(quality_score, 1),
+                "message": "Không phát hiện khuôn mặt hợp lệ. Vui lòng đưa mặt gần hơn và vào giữa khung.",
+                "processing_time_ms": int((time.time() - start_time) * 1000)
+            }
         
         # Nếu chất lượng quá thấp -> không phải mặt thật, không so sánh
         if quality_score < MIN_QUALITY_THRESHOLD or confidence < MIN_CONFIDENCE_THRESHOLD:
@@ -875,21 +901,49 @@ def face_recognize(req: FaceRecognizeRequest):
             # Sắp xếp theo cosine similarity giảm dần
             matches.sort(key=lambda x: x['cosine_similarity'], reverse=True)
             best_match = matches[0]
-            
-            print(f"[SUCCESS] Matched: {best_match['customer_name']} "
-                  f"(confidence: {best_match['confidence']}%) "
+            top2 = matches[1] if len(matches) > 1 else None
+            delta_to_second = best_match["cosine_similarity"] - (top2["cosine_similarity"] if top2 else 0.0)
+
+            # Policy chuyển sang "đa số thắng" + vùng xám cần xác nhận
+            needs_confirmation = False
+            policy = "unknown"
+
+            if best_match["cosine_similarity"] >= 0.65:
+                if delta_to_second < 0.10:
+                    policy = "review"  # điểm cao nhưng sát nút top2 -> cần xác nhận
+                    needs_confirmation = True
+                else:
+                    policy = "auto"
+            elif best_match["cosine_similarity"] >= 0.55:
+                policy = "review"      # vùng xám: ưu tiên recall, nhờ NV xác nhận
+                needs_confirmation = True
+            else:
+                policy = "unknown"
+
+            matched_flag = policy != "unknown"
+
+            print(f"[SUCCESS] Candidate: {best_match['customer_name']} "
+                  f"(cosine={best_match['cosine_similarity']:.4f}, delta={delta_to_second:.4f}, policy={policy}) "
                   f"in {processing_time}ms")
-            
-            return {
+
+            response = {
                 **base_response,
-                "matched": True,
+                "matched": matched_flag,
                 "customer_id": best_match["customer_id"],
                 "confidence": best_match["confidence"],
                 "cosine_similarity": round(best_match["cosine_similarity"], 4),
                 "avatar_quality": best_match.get("avatar_quality", 0),
-                "message": f"Đã nhận diện: {best_match['customer_name']}",
+                "message": f"Đã nhận diện: {best_match['customer_name']}" if matched_flag else "Cần xác nhận thủ công",
                 "all_matches": matches[:3],
+                "needs_confirmation": needs_confirmation,
+                "policy": policy,
+                "delta_to_second": round(delta_to_second, 4),
+                "top2_cosine": round(top2["cosine_similarity"], 4) if top2 else None
             }
+
+            # Nếu policy là review, vẫn trả matched=True để không bỏ sót, kèm cờ needs_confirmation
+            # Frontend có thể hiển thị gợi ý và yêu cầu xác nhận thủ công.
+            return response
         
         print(f"[INFO] No match found in {processing_time}ms (quality: {quality_score:.1f})")
         return {

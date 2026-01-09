@@ -111,6 +111,8 @@ const FaceRecognition = () => {
   const noMatchCountRef = useRef(0); // Ref để track noMatchCount đúng trong callback
   const bestFaceImageRef = useRef(null); // Ref để track bestFaceImage đúng trong callback
   const bestFaceQualityRef = useRef(0); // Ref để track bestFaceQuality đúng trong callback
+  const matchStreakRef = useRef(0); // Đếm liên tiếp cùng một customer để bỏ phiếu theo thời gian
+  const lastMatchIdRef = useRef(null);
 
   // Camera selection
   const [availableCameras, setAvailableCameras] = useState([]);
@@ -177,6 +179,8 @@ const FaceRecognition = () => {
       noMatchCountRef.current = 0;
       bestFaceImageRef.current = null;
       bestFaceQualityRef.current = 0;
+      matchStreakRef.current = 0;
+      lastMatchIdRef.current = null;
       setNoMatchCount(0);
       setIsNewCustomer(false);
       setCapturedImage(null);
@@ -320,20 +324,39 @@ const FaceRecognition = () => {
       }
 
       if (result.matched) {
-        // Tìm thấy khách hàng - dừng quét
-        console.log(`[MATCH] Customer: ${result.customer?.name || result.customer_id}, Confidence: ${result.confidence}%`);
-        setRecognitionResult(result);
-        setIsScanning(false);
-        noMatchCountRef.current = 0; // Reset ref
-        setNoMatchCount(0);
-        setIsNewCustomer(false);
-        if (scanIntervalRef.current) {
-          clearInterval(scanIntervalRef.current);
-          scanIntervalRef.current = null;
+        const customerId = result.customer_id;
+        const needsConfirmation = result.needs_confirmation;
+
+        // Temporal voting: yêu cầu tối thiểu 3 lần liên tiếp cùng 1 customer trước khi chốt
+        if (lastMatchIdRef.current === customerId) {
+          matchStreakRef.current += 1;
+        } else {
+          lastMatchIdRef.current = customerId;
+          matchStreakRef.current = 1;
+        }
+
+        const streak = matchStreakRef.current;
+        console.log(`[MATCH] Customer: ${result.customer?.name || customerId}, streak=${streak}, needs_confirmation=${needsConfirmation}`);
+
+        // Điều kiện chốt: đủ 3 lần liên tiếp
+        if (streak >= 3) {
+          setRecognitionResult(result);
+          setIsScanning(false);
+          noMatchCountRef.current = 0; // Reset ref
+          setNoMatchCount(0);
+          setIsNewCustomer(false);
+          if (scanIntervalRef.current) {
+            clearInterval(scanIntervalRef.current);
+            scanIntervalRef.current = null;
+          }
+        } else {
+          // Chưa đủ phiếu, tiếp tục quét
+          setRecognitionResult(null);
         }
       } else {
         // CÓ MẶT nhưng KHÔNG MATCH với ai - đây mới là "potential new customer"
         const effectiveQuality = Math.max(currentQuality, bestFaceQualityRef.current);
+        const canCreateNew = result.face_detected && effectiveQuality >= 45;
         
         // Dùng ref để track đúng count (tránh stale closure)
         noMatchCountRef.current += 1;
@@ -342,8 +365,8 @@ const FaceRecognition = () => {
         
         console.log(`[NO MATCH] Scan #${scanCount + 1}, NoMatch: ${newNoMatchCount}/${MAX_SCANS_BEFORE_NEW_CUSTOMER}, Quality: ${currentQuality.toFixed(1)}%, Best: ${effectiveQuality.toFixed(1)}%`);
         
-        // Sau MAX_SCANS_BEFORE_NEW_CUSTOMER lần có mặt nhưng không match -> hiện khách mới
-        if (newNoMatchCount >= MAX_SCANS_BEFORE_NEW_CUSTOMER && effectiveQuality > 30) {
+        // Sau MAX_SCANS_BEFORE_NEW_CUSTOMER lần có mặt nhưng không match -> hiện khách mới (chỉ khi có mặt hợp lệ)
+        if (canCreateNew && newNoMatchCount >= MAX_SCANS_BEFORE_NEW_CUSTOMER) {
           console.log(`[NEW CUSTOMER] Triggered after ${newNoMatchCount} scans, quality: ${effectiveQuality.toFixed(1)}%`);
           setIsNewCustomer(true);
           // Sử dụng ảnh mặt đã crop tốt nhất từ ref
@@ -353,8 +376,15 @@ const FaceRecognition = () => {
             clearInterval(scanIntervalRef.current);
             scanIntervalRef.current = null;
           }
+        } else if (!canCreateNew) {
+          // Không đủ điều kiện mặt hợp lệ -> không cho tạo mới
+          setIsNewCustomer(false);
+          setCapturedImage(null);
         }
         setRecognitionResult(null);
+        // Reset vote streak vì chưa match
+        matchStreakRef.current = 0;
+        lastMatchIdRef.current = null;
       }
     } catch (err) {
       console.error('Scan error:', err);
@@ -396,6 +426,8 @@ const FaceRecognition = () => {
     noMatchCountRef.current = 0;
     bestFaceImageRef.current = null;
     bestFaceQualityRef.current = 0;
+      matchStreakRef.current = 0;
+      lastMatchIdRef.current = null;
     
     // Clear TẤT CẢ dữ liệu cũ (state)
     setRecognitionResult(null);
