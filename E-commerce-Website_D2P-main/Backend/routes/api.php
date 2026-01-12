@@ -28,6 +28,7 @@ use App\Http\Controllers\Api\RecentlyViewedController;
 use App\Http\Controllers\Api\ProductTemperatureController;
 use App\Http\Controllers\Api\WeatherController;
 use App\Http\Controllers\Api\FaceRecognitionController;
+use App\Http\Controllers\Api\FaceRecognitionV2Controller;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -287,7 +288,7 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role.admin'])->group(functi
     Route::put('contacts/{id}/status', [ContactController::class, 'updateStatus']);
     Route::delete('contacts/{id}', [ContactController::class, 'destroy']);
 
-    // Face Recognition (Admin)
+    // Face Recognition (Admin) - V1 (FaceNet + MTCNN)
     Route::prefix('face')->group(function () {
         Route::get('status', [FaceRecognitionController::class, 'checkStatus']);
         Route::get('customers', [FaceRecognitionController::class, 'getCustomersWithAvatar']);
@@ -295,6 +296,13 @@ Route::prefix('admin')->middleware(['auth:sanctum', 'role.admin'])->group(functi
         Route::post('detect', [FaceRecognitionController::class, 'detectOnly']); // Debug endpoint
         Route::post('clear-cache', [FaceRecognitionController::class, 'clearCache']);
         Route::post('update-avatar', [FaceRecognitionController::class, 'updateAvatarManual']); // NV update avatar thủ công
+    });
+
+    // Face Recognition V2 (Admin) - ArcFace với Best Practices
+    Route::prefix('face/v2')->group(function () {
+        Route::get('status', [FaceRecognitionV2Controller::class, 'checkStatus']);
+        Route::get('customers', [FaceRecognitionV2Controller::class, 'getCustomersWithAvatar']);
+        Route::post('recognize', [FaceRecognitionV2Controller::class, 'recognize']);
     });
 });
 

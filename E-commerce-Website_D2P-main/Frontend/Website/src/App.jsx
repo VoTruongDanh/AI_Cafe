@@ -56,6 +56,7 @@ const AdminAnalytics = lazy(() => import('./pages/admin/Analytics'))
 const AdminProfile = lazy(() => import('./pages/admin/Profile'))
 const AdminAIClassification = lazy(() => import('./pages/admin/AIClassification'))
 const AdminFaceRecognition = lazy(() => import('./pages/admin/FaceRecognition'))
+const AdminFaceRecognitionV2 = lazy(() => import('./pages/admin/FaceRecognitionV2'))
 
 // Protected Route components
 import ProtectedRoute from './components/auth/ProtectedRoute'
@@ -233,7 +234,8 @@ const AppContent = () => {
             <Route path="inventory" element={<AdminInventory />} />
             <Route path="analytics" element={<AdminAnalytics />} />
             <Route path="ai-classification" element={<AdminAIClassification />} />
-            <Route path="face-recognition" element={<AdminFaceRecognition />} />
+              <Route path="face-recognition" element={<AdminFaceRecognition />} />
+              <Route path="face-recognition-v2" element={<AdminFaceRecognitionV2 />} />
             <Route path="profile" element={<AdminProfile />} />
           </Route>
 

@@ -21,7 +21,7 @@ from pydantic import BaseModel
 # =============================================================================
 ENABLE_HAAR_FALLBACK = False  # Tắt Haar mặc định để tránh lag/FP; bật khi cần qua flag
 USE_SCRFD = True  # ✅ Nâng cấp: Sử dụng SCRFD (InsightFace) thay MTCNN để đạt tốc độ Real-time và bắt góc nghiêng tốt hơn
-USE_ARCFACE = True  # ✅ Nâng cấp: Sử dụng ArcFace thay FaceNet để giảm False Positive tốt hơn
+USE_ARCFACE = False  # DISABLE V1: Quay lại FaceNet + MTCNN. ArcFace sẽ được triển khai trong V2 với best practices
 FACENET_AVAILABLE = False
 SCRFD_DETECTOR = None  # SCRFD detector (InsightFace FaceAnalysis) - det_size=(640, 640) cho tốc độ
 SCRFD_DETECTOR_LARGE = None  # SCRFD detector với det_size=(1280, 1280) cho trường hợp khách đứng xa (>2m)
@@ -65,7 +65,7 @@ try:
                 providers=['CUDAExecutionProvider', 'CPUExecutionProvider'] if torch.cuda.is_available() else ['CPUExecutionProvider']
             )
             SCRFD_DETECTOR.prepare(ctx_id=ctx_id, det_size=(640, 640))
-            print(f"[INFO] ✅ SCRFD detector loaded (640x640, device={'GPU' if torch.cuda.is_available() else 'CPU'})")
+            print(f"[INFO] [OK] SCRFD detector loaded (640x640, device={'GPU' if torch.cuda.is_available() else 'CPU'})")
             
             # SCRFD với det_size=(1280, 1280) - cho trường hợp khách đứng xa (> 2m), mặt nhỏ
             # Chỉ tạo khi cần (lazy loading trong detect_face_scrfd_large)
@@ -76,49 +76,53 @@ try:
             print("[INFO] Falling back to MTCNN...")
             SCRFD_DETECTOR = None
     
-    # MTCNN Fallback (nếu SCRFD không có hoặc fail)
-    if SCRFD_DETECTOR is None:
-        try:
-            from facenet_pytorch import MTCNN
-            MTCNN_DETECTOR = MTCNN(
-                image_size=160,
-                margin=25,
-                min_face_size=25,
-                thresholds=[0.5, 0.6, 0.6],
-                factor=0.8,
-                post_process=True,
-                select_largest=True,
-                keep_all=False,
-                device=DEVICE
-            )
-            print("[INFO] MTCNN detector loaded as fallback")
-        except Exception as mtcnn_error:
-            print(f"[ERROR] MTCNN fallback failed: {mtcnn_error}")
-            MTCNN_DETECTOR = None
+    # MTCNN - LUÔN LOAD để dùng cho FaceNet alignment (khi FaceNet là fallback)
+    # FaceNet CẦN MTCNN alignment để extract embedding chính xác
+    # ArcFace KHÔNG CẦN MTCNN vì tự có alignment trong model
+    # FIX: Dùng CPU vì torchvision::nms không có CUDA backend trên Windows
+    try:
+        from facenet_pytorch import MTCNN
+        MTCNN_DETECTOR = MTCNN(
+            image_size=160,
+            margin=25,
+            min_face_size=25,
+            thresholds=[0.5, 0.6, 0.6],
+            factor=0.8,
+            post_process=True,
+            select_largest=True,
+            keep_all=False,
+            device='cpu'  # Dùng CPU vì torchvision::nms không có CUDA backend
+        )
+        print("[INFO] MTCNN detector loaded (for FaceNet fallback alignment, device=CPU)")
+    except Exception as mtcnn_error:
+        print(f"[WARN] MTCNN load failed (FaceNet fallback alignment may be less accurate): {mtcnn_error}")
+        MTCNN_DETECTOR = None
     
     # Face Embedding Model - ✅ Nâng cấp: ArcFace (InsightFace) thay FaceNet
     # LƯU Ý: SCRFD dùng cho Detection, ArcFace dùng cho Embedding - CẢ HAI CẦN DÙNG CÙNG LÚC
+    # FIX: Load cả detection và recognition, nhưng chỉ dùng recognition (vì SCRFD đã detect)
     if USE_ARCFACE:
         try:
             import insightface
             # ArcFace từ InsightFace - tốt hơn FaceNet trong việc giảm False Positive
             # Input size: 112x112, Output: 512D (hoặc tùy model)
-            # QUAN TRỌNG: allowed_modules=['recognition'] - Chỉ load recognition (embedding), KHÔNG load detection
-            # Detection đã được xử lý bởi SCRFD ở trên
+            # FIX: Phải load cả detection (InsightFace yêu cầu), nhưng chúng ta sẽ không dùng nó
+            # Thay vào đó, SCRFD đã detect face, chúng ta chỉ dùng recognition module của ArcFace
             ARCFACE_MODEL = insightface.app.FaceAnalysis(
-                allowed_modules=['recognition'],  # ✅ CHỈ load recognition module (ArcFace embedding), KHÔNG detect
                 providers=['CUDAExecutionProvider', 'CPUExecutionProvider'] if torch.cuda.is_available() else ['CPUExecutionProvider']
             )
             ctx_id = 0 if not torch.cuda.is_available() else -1
-            # det_size không quan trọng vì chỉ dùng recognition, nhưng cần prepare
             ARCFACE_MODEL.prepare(ctx_id=ctx_id, det_size=(640, 640))
             EMBEDDING_MODEL = ARCFACE_MODEL
             EMBEDDING_INPUT_SIZE = 112  # ArcFace dùng 112x112
-            print("[INFO] ✅ ArcFace model loaded (InsightFace, input=112x112, recognition only)")
-            print("[INFO] ✅ Pipeline: SCRFD (detection) → ArcFace (embedding) - CẢ HAI DÙNG CÙNG LÚC")
+            print("[INFO] [OK] ArcFace model loaded (InsightFace, input=112x112, with detection+recognition)")
+            print("[INFO] [OK] Pipeline: SCRFD (detection) -> ArcFace recognition only (embedding)")
             print("[INFO] ArcFace advantages: Better discrimination, lower False Positive, angular margin")
         except Exception as arcface_error:
             print(f"[WARN] ArcFace initialization failed: {arcface_error}")
+            import traceback
+            print(f"[WARN] ArcFace error details:")
+            traceback.print_exc()
             print("[INFO] Falling back to FaceNet...")
             ARCFACE_MODEL = None
             USE_ARCFACE = False
@@ -146,7 +150,7 @@ try:
     if EMBEDDING_MODEL is not None:
         FACENET_AVAILABLE = True
         model_name = "ArcFace" if USE_ARCFACE and ARCFACE_MODEL is not None else "FaceNet"
-        print(f"[INFO] ✅ Face Recognition System Ready! (Embedding: {model_name}, Input: {EMBEDDING_INPUT_SIZE}x{EMBEDDING_INPUT_SIZE})")
+        print(f"[INFO] [OK] Face Recognition System Ready! (Embedding: {model_name}, Input: {EMBEDDING_INPUT_SIZE}x{EMBEDDING_INPUT_SIZE})")
     else:
         print("[WARN] No embedding model available!")
         FACENET_AVAILABLE = False
@@ -388,9 +392,9 @@ CUSTOMER_CACHE = {
     "customers": []  # list dict {id, name, embedding, avatar_quality}
 }
 
-# Ngưỡng nhận diện - Siết chặt để tránh nhận nhầm (Zero False Positive)
-SIMILARITY_THRESHOLD = 0.75  # Cosine >= 0.75 mới được coi là match (tăng từ 0.60 để tránh nhận nhầm)
-DISTANCE_THRESHOLD = 0.70    # Euclidean < 0.70 (siết chặt hơn)
+# Ngưỡng nhận diện - Cân bằng giữa độ chính xác và độ nhạy
+SIMILARITY_THRESHOLD = 0.60  # Cosine >= 0.60 mới được coi là match (revert về giá trị ban đầu)
+DISTANCE_THRESHOLD = 0.80    # Euclidean < 0.80
 
 
 def calculate_face_quality(box, img_width, img_height, prob) -> float:
@@ -543,7 +547,7 @@ def detect_face_scrfd(img_cv, det_size=(640, 640)):
                     providers=['CUDAExecutionProvider', 'CPUExecutionProvider'] if torch.cuda.is_available() else ['CPUExecutionProvider']
                 )
                 SCRFD_DETECTOR_LARGE.prepare(ctx_id=ctx_id, det_size=(1280, 1280))
-                print("[INFO] ✅ SCRFD large detector (1280x1280) created for distant faces")
+                print("[INFO] [OK] SCRFD large detector (1280x1280) created for distant faces")
             except Exception as e:
                 print(f"[WARN] Failed to create SCRFD large detector: {e}")
                 return None, None, None
@@ -643,15 +647,15 @@ def get_face_with_box(image_input, use_cache: bool = True, cache_key: str = None
         
         img_height, img_width = img_cv.shape[:2]
         
-        # Tối ưu: Resize ảnh xuống max 640x640 trước khi detect (giảm input size -> nhanh hơn)
-        max_size = 640
+        # Tối ưu: Resize ảnh xuống max 512x512 trước khi detect (giảm input size -> nhanh hơn nhiều trên CPU)
+        max_size = 512  # Giảm từ 640 xuống 512 để tăng tốc trên CPU
         if img_width > max_size or img_height > max_size:
             scale = min(max_size / img_width, max_size / img_height)
             new_width = int(img_width * scale)
             new_height = int(img_height * scale)
             img_cv = cv2.resize(img_cv, (new_width, new_height), interpolation=cv2.INTER_LINEAR)
             img_height, img_width = img_cv.shape[:2]
-            print(f"[INFO] Resized image to {new_width}x{new_height} for faster detection")
+            # Không log để giảm I/O overhead
         
         # ✅ Nâng cấp: SCRFD với Dynamic Resize Fallback (tối ưu cho cả khách đứng gần và xa)
         img_rgb = cv2.cvtColor(img_cv, cv2.COLOR_BGR2RGB)
@@ -665,7 +669,7 @@ def get_face_with_box(image_input, use_cache: bool = True, cache_key: str = None
             print("[INFO] SCRFD 640x640 failed, trying 1280x1280 for distant faces...")
             boxes, probs, detection_method = detect_face_scrfd(img_cv, det_size=(1280, 1280))
             if boxes is not None and len(boxes) > 0:
-                print("[INFO] ✅ Face detected with SCRFD 1280x1280 (distant face)")
+                print("[INFO] [OK] Face detected with SCRFD 1280x1280 (distant face)")
         
         # === FALLBACK 2: MTCNN (chỉ khi SCRFD không có hoặc cả 2 det_size đều fail) ===
         if (boxes is None or len(boxes) == 0) and MTCNN_DETECTOR is not None:
@@ -757,23 +761,25 @@ def get_face_with_box(image_input, use_cache: bool = True, cache_key: str = None
         # QUAN TRỌNG: SCRFD đã detect face ở trên, giờ chỉ cần extract embedding
         embedding = None
         if USE_ARCFACE and ARCFACE_MODEL is not None:
-            # ArcFace từ InsightFace - dùng cropped face đã có từ SCRFD/MTCNN
+            # ArcFace từ InsightFace - BEST PRACTICE: Dùng FULL IMAGE, để ArcFace tự detect và align
+            # ArcFace FaceAnalysis hoạt động tốt nhất với full image (có context), không crop trước
             try:
-                # Lưu ý: InsightFace FaceAnalysis với recognition module vẫn cần detect để có landmarks
-                # Nhưng chúng ta đã có bbox từ SCRFD, nên dùng full image và match với bbox đã có
-                # Hoặc có thể dùng cropped face trực tiếp nếu model hỗ trợ
+                # QUAN TRỌNG: Dùng full image (img_cv) để ArcFace có context đầy đủ
+                # ArcFace sẽ tự detect, align và extract embedding (pipeline tối ưu)
                 faces_detected = ARCFACE_MODEL.get(img_cv)
                 
                 if faces_detected and len(faces_detected) > 0:
                     # Tìm face gần nhất với bbox đã detect (từ SCRFD/MTCNN)
-                    # Điều này đảm bảo dùng đúng face đã được SCRFD detect
+                    # Để đảm bảo dùng đúng face khi có nhiều faces
                     best_face_obj = None
                     min_distance = float('inf')
                     detect_center = ((x1 + x2) / 2, (y1 + y2) / 2)
+                    scrfd_bbox = np.array([x1, y1, x2, y2])
                     
                     for f in faces_detected:
-                        f_bbox = f.bbox
+                        f_bbox = np.array(f.bbox)
                         f_center = ((f_bbox[0] + f_bbox[2]) / 2, (f_bbox[1] + f_bbox[3]) / 2)
+                        # Tính distance giữa centers
                         distance = np.sqrt((f_center[0] - detect_center[0])**2 + (f_center[1] - detect_center[1])**2)
                         if distance < min_distance:
                             min_distance = distance
@@ -781,18 +787,18 @@ def get_face_with_box(image_input, use_cache: bool = True, cache_key: str = None
                     
                     # Lấy embedding từ face object (ArcFace đã align và normalize)
                     if best_face_obj:
-                        # InsightFace face object có attribute 'embedding' hoặc 'norm_embedding'
                         if hasattr(best_face_obj, 'norm_embedding') and best_face_obj.norm_embedding is not None:
                             embedding = best_face_obj.norm_embedding
                         elif hasattr(best_face_obj, 'embedding') and best_face_obj.embedding is not None:
                             embedding = best_face_obj.embedding
+                            # Normalize embedding
+                            embedding = np.array(embedding)
+                            embedding = embedding / np.linalg.norm(embedding)
                         else:
                             raise ValueError("ArcFace face object không có embedding attribute")
                         
-                        # Normalize embedding (nếu chưa normalize)
                         embedding = np.array(embedding)
-                        embedding = embedding / np.linalg.norm(embedding)
-                        print(f"[INFO] ✅ ArcFace embedding extracted (size={len(embedding)}, matched SCRFD bbox, distance={min_distance:.1f}px)")
+                        print(f"[INFO] [OK] ArcFace embedding extracted (size={len(embedding)}, from full image, matched SCRFD bbox)")
                     else:
                         raise ValueError("Không tìm thấy face object phù hợp với SCRFD bbox")
                 else:
@@ -804,13 +810,12 @@ def get_face_with_box(image_input, use_cache: bool = True, cache_key: str = None
         # FaceNet Fallback hoặc khi ArcFace không có embedding
         if embedding is None and FACENET_MODEL is not None:
             try:
-                # SCRFD không trả về face tensor -> luôn dùng cropped face
-                # MTCNN có thể trả về face tensor -> thử dùng trước, fallback về cropped
-                use_mtcnn_tensor = (detection_method and detection_method.startswith('mtcnn') and 
-                                   MTCNN_DETECTOR and hasattr(MTCNN_DETECTOR, '__call__'))
+                # ✅ FIX: FaceNet CẦN face alignment với landmarks (MTCNN)
+                # Dùng MTCNN để align face trước khi extract embedding (ngay cả khi detect bằng SCRFD)
+                face_tensor = None
                 
-                if use_mtcnn_tensor:
-                    # Thử dùng face tensor từ MTCNN (nếu có)
+                if MTCNN_DETECTOR is not None and hasattr(MTCNN_DETECTOR, '__call__'):
+                    # Thử dùng MTCNN để align face (QUAN TRỌNG: FaceNet cần alignment)
                     try:
                         face_tensors = MTCNN_DETECTOR(img)
                         if face_tensors is not None:
@@ -820,22 +825,20 @@ def get_face_with_box(image_input, use_cache: bool = True, cache_key: str = None
                                 face_tensor = face_tensors[best_idx:best_idx+1]
                             else:
                                 face_tensor = face_tensors
-                        else:
-                            raise ValueError("MTCNN returned None")
-                    except:
-                        # Fallback: dùng cropped face
-                        face_aligned = face_crop.resize((EMBEDDING_INPUT_SIZE, EMBEDDING_INPUT_SIZE), Image.LANCZOS)
-                        face_np = np.array(face_aligned).astype(np.float32)
-                        face_np = (face_np - 127.5) / 128.0
-                        face_tensor = torch.from_numpy(face_np).permute(2, 0, 1).unsqueeze(0).float()
-                else:
-                    # SCRFD hoặc fallback: dùng cropped face
+                            print(f"[INFO] FaceNet: Using MTCNN aligned face tensor")
+                    except Exception as mtcnn_align_error:
+                        print(f"[WARN] MTCNN alignment failed: {mtcnn_align_error}, using cropped face")
+                        face_tensor = None
+                
+                # Fallback: dùng cropped face (resize, không align)
+                if face_tensor is None:
                     face_aligned = face_crop.resize((EMBEDDING_INPUT_SIZE, EMBEDDING_INPUT_SIZE), Image.LANCZOS)
                     face_np = np.array(face_aligned).astype(np.float32)
                     face_np = (face_np - 127.5) / 128.0
                     face_tensor = torch.from_numpy(face_np).permute(2, 0, 1).unsqueeze(0).float()
+                    print(f"[INFO] FaceNet: Using cropped face (no alignment)")
                 
-                    # Lấy embedding từ FaceNet
+                # Lấy embedding từ FaceNet
                 with torch.no_grad():
                     face_tensor = face_tensor.to(DEVICE)
                     embedding = FACENET_MODEL(face_tensor)
@@ -846,6 +849,8 @@ def get_face_with_box(image_input, use_cache: bool = True, cache_key: str = None
                     print(f"[INFO] FaceNet embedding extracted (size={len(embedding)})")
             except Exception as facenet_error:
                 print(f"[ERROR] FaceNet embedding failed: {facenet_error}")
+                import traceback
+                traceback.print_exc()
                 return None, None
         
         # Kiểm tra embedding đã được tạo chưa
@@ -895,14 +900,18 @@ def cache_customers_embeddings(customers: List[CustomerFace]):
         avatar_file_path = get_avatar_path(customer.avatar_url, customer.avatar_path)
         if not avatar_file_path:
             continue
+        print(f"[DEBUG] Extracting avatar embedding for {customer.name} from {avatar_file_path}")
         avatar_embedding, avatar_face_info = get_face_with_box(
             avatar_file_path,
             use_cache=True,
             cache_key=avatar_file_path
         )
         if avatar_embedding is None:
+            print(f"[WARN] Failed to extract embedding for {customer.name}")
             continue
         avatar_quality = avatar_face_info.get("quality_score", 0) if avatar_face_info else 0
+        avatar_norm = np.linalg.norm(avatar_embedding)
+        print(f"[DEBUG] Avatar embedding for {customer.name}: norm={avatar_norm:.6f}, shape={avatar_embedding.shape}, quality={avatar_quality:.1f}")
         cached_list.append({
             "customer_id": customer.id,
             "customer_name": customer.name,
@@ -910,7 +919,9 @@ def cache_customers_embeddings(customers: List[CustomerFace]):
             "avatar_quality": round(avatar_quality, 1)
         })
         if FAISS_AVAILABLE:
-            faiss_vectors.append((avatar_embedding.astype(np.float32), {
+            # QUAN TRỌNG: Normalize embedding trước khi add vào FAISS
+            vec_normalized = avatar_embedding.astype(np.float32) / np.linalg.norm(avatar_embedding)
+            faiss_vectors.append((vec_normalized, {
                 "customer_id": customer.id,
                 "customer_name": customer.name,
                 "avatar_quality": round(avatar_quality, 1)
@@ -920,37 +931,45 @@ def cache_customers_embeddings(customers: List[CustomerFace]):
         "updated_at": time.time(),
         "customers": cached_list
     }
-    # Build FAISS HNSW index if available
+    # Build FAISS index if available - Dùng IndexFlatIP để tính cosine similarity trực tiếp
     FAISS_INDEX = None
     FAISS_ID_MAP = []
     if FAISS_AVAILABLE and len(faiss_vectors) > 0:
         import faiss
         dim = faiss_vectors[0][0].shape[0]
-        index = faiss.IndexHNSWFlat(dim, 32)
-        index.hnsw.efConstruction = 200
-        index.hnsw.efSearch = 128
+        # QUAN TRỌNG: Dùng IndexFlatIP (Inner Product) để tính cosine similarity trực tiếp
+        # Với normalized vectors, inner product = cosine similarity
+        index = faiss.IndexFlatIP(dim)
         for vec, meta in faiss_vectors:
+            # Embeddings đã được normalize ở trên
             index.add(np.ascontiguousarray([vec]))
             FAISS_ID_MAP.append(meta)
         FAISS_INDEX = index
-        print(f"[INFO] FAISS index built with {len(FAISS_ID_MAP)} vectors (efSearch=128, efConstruction=200)")
+        print(f"[INFO] FAISS IndexFlatIP built with {len(FAISS_ID_MAP)} vectors (normalized, inner product = cosine similarity)")
     print(f"[INFO] Cached embeddings for {len(cached_list)} customers (version={CUSTOMER_CACHE['version']})")
 
 
 def search_faiss_candidates(query_embedding: np.ndarray, top_k: int = 50):
-    """Tìm ứng viên bằng FAISS HNSW (nếu có), trả về list dict với cosine/Euclidean"""
+    """Tìm ứng viên bằng FAISS IndexFlatIP (nếu có), trả về list dict với cosine/Euclidean"""
     if not FAISS_AVAILABLE or FAISS_INDEX is None or len(FAISS_ID_MAP) == 0:
         return None
     k = min(top_k, len(FAISS_ID_MAP))
-    q = np.ascontiguousarray([query_embedding.astype(np.float32)])
+    
+    # QUAN TRỌNG: Normalize query embedding trước khi search
+    query_normalized = query_embedding.astype(np.float32) / np.linalg.norm(query_embedding)
+    q = np.ascontiguousarray([query_normalized])
+    
+    # IndexFlatIP trả về inner product trực tiếp = cosine similarity (vì vectors đã normalized)
     D, I = FAISS_INDEX.search(q, k)
     results = []
-    for dist, idx in zip(D[0], I[0]):
+    for inner_product, idx in zip(D[0], I[0]):
         if idx < 0 or idx >= len(FAISS_ID_MAP):
             continue
-        # Với vector đã chuẩn hóa, L2^2 = 2 - 2*cosine => cosine = 1 - dist/2
-        cosine_sim = 1 - float(dist) / 2.0
-        euclid = float(np.sqrt(max(dist, 0.0)))
+        # Với normalized vectors, inner product = cosine similarity
+        cosine_sim = float(inner_product)
+        # Tính Euclidean distance từ cosine: ||a-b||^2 = 2 - 2*cosine (với normalized vectors)
+        euclid_squared = 2.0 - 2.0 * cosine_sim
+        euclid = float(np.sqrt(max(euclid_squared, 0.0)))
         meta = FAISS_ID_MAP[idx]
         results.append({
             "customer_id": meta["customer_id"],
@@ -967,14 +986,22 @@ def compute_similarity(emb1: np.ndarray, emb2: np.ndarray) -> dict:
     Tính độ tương đồng giữa 2 embeddings với nhiều metrics
     """
     # Ensure normalized
-    emb1 = emb1 / np.linalg.norm(emb1)
-    emb2 = emb2 / np.linalg.norm(emb2)
+    emb1_norm = np.linalg.norm(emb1)
+    emb2_norm = np.linalg.norm(emb2)
+    emb1 = emb1 / emb1_norm
+    emb2 = emb2 / emb2_norm
     
     # Cosine similarity (1 = giống hoàn toàn, -1 = khác hoàn toàn)
     cosine_sim = float(np.dot(emb1, emb2))
     
     # Euclidean distance (0 = giống hoàn toàn)
     euclidean_dist = float(np.linalg.norm(emb1 - emb2))
+    
+    # DEBUG: Log embedding stats nếu similarity quá thấp
+    if cosine_sim < 0.1:
+        print(f"[DEBUG] Low similarity detected: {cosine_sim:.4f}, norms: emb1={emb1_norm:.4f}, emb2={emb2_norm:.4f}, euclidean={euclidean_dist:.4f}")
+        print(f"[DEBUG] Embedding stats: emb1_min={emb1.min():.4f}, emb1_max={emb1.max():.4f}, emb1_mean={emb1.mean():.4f}")
+        print(f"[DEBUG] Embedding stats: emb2_min={emb2.min():.4f}, emb2_max={emb2.max():.4f}, emb2_mean={emb2.mean():.4f}")
     
     return {
         "cosine_similarity": cosine_sim,
@@ -1230,29 +1257,56 @@ def face_recognize(req: FaceRecognizeRequest):
                 "no_customers_in_db": True  # Flag để frontend biết là do DB trống
             }
 
-        # 4. So sánh với customers trong cache (ưu tiên FAISS HNSW)
-        faiss_results = search_faiss_candidates(camera_embedding, top_k=50)
-        if faiss_results is not None:
-            for r in faiss_results:
-                if r["cosine_similarity"] >= SIMILARITY_THRESHOLD or r["euclidean_distance"] < DISTANCE_THRESHOLD:
-                    matches.append(r)
-        else:
-            # Fallback linear nếu FAISS không có
-            for c in customer_embeddings:
-                avatar_embedding = c.get("embedding")
-                avatar_quality = c.get("avatar_quality", 0)
-                if avatar_embedding is None:
-                    continue
-                similarity = compute_similarity(camera_embedding, avatar_embedding)
-                if similarity['is_match']:
-                    matches.append({
-                        "customer_id": c["customer_id"],
-                        "customer_name": c["customer_name"],
-                        "cosine_similarity": similarity['cosine_similarity'],
-                        "euclidean_distance": similarity['euclidean_distance'],
-                        "confidence": round(similarity['cosine_similarity'] * 100, 1),
-                        "avatar_quality": round(avatar_quality, 1)
-                    })
+        # 4. So sánh với customers trong cache (DEBUG: Tạm thời dùng linear search để debug)
+        best_similarity = 0.0
+        best_customer_name = None
+        
+        # DEBUG: Tắt FAISS tạm thời để dùng linear search trực tiếp
+        # faiss_results = search_faiss_candidates(camera_embedding, top_k=50)
+        # if faiss_results is not None:
+        #     for r in faiss_results:
+        #         sim = r["cosine_similarity"]
+        #         if sim > best_similarity:
+        #             best_similarity = sim
+        #             best_customer_name = r.get("customer_name", "Unknown")
+        #         if r["cosine_similarity"] >= SIMILARITY_THRESHOLD or r["euclidean_distance"] < DISTANCE_THRESHOLD:
+        #             matches.append(r)
+        
+        # Dùng linear search trực tiếp để debug
+        # DEBUG: Log embedding norms để kiểm tra
+        camera_norm = np.linalg.norm(camera_embedding)
+        print(f"[DEBUG] Camera embedding norm: {camera_norm:.6f}")
+        
+        for c in customer_embeddings:
+            avatar_embedding = c.get("embedding")
+            avatar_quality = c.get("avatar_quality", 0)
+            if avatar_embedding is None:
+                continue
+            
+            # DEBUG: Log avatar embedding norm
+            avatar_norm = np.linalg.norm(avatar_embedding)
+            if c.get("customer_name") == "James Tucker":  # Log cho customer đầu tiên để debug
+                print(f"[DEBUG] Avatar embedding norm ({c.get('customer_name')}): {avatar_norm:.6f}")
+            
+            similarity = compute_similarity(camera_embedding, avatar_embedding)
+            sim = similarity['cosine_similarity']
+            
+            # DEBUG: Log similarity cho customer đầu tiên
+            if c.get("customer_name") == "James Tucker":
+                print(f"[DEBUG] Similarity with {c.get('customer_name')}: {sim:.6f} ({sim*100:.2f}%)")
+            
+            if sim > best_similarity:
+                best_similarity = sim
+                best_customer_name = c.get("customer_name", "Unknown")
+            if similarity['is_match']:
+                matches.append({
+                    "customer_id": c["customer_id"],
+                    "customer_name": c["customer_name"],
+                    "cosine_similarity": similarity['cosine_similarity'],
+                    "euclidean_distance": similarity['euclidean_distance'],
+                    "confidence": round(similarity['cosine_similarity'] * 100, 1),
+                    "avatar_quality": round(avatar_quality, 1)
+                })
         
         # Cleanup temp files
         for f in temp_files:
@@ -1288,7 +1342,7 @@ def face_recognize(req: FaceRecognizeRequest):
             top2_high = top2 and top2["cosine_similarity"] >= 0.70
             multiple_high_scores = len(high_score_matches) > 1  # Có nhiều ứng viên với score cao
             
-            # Policy siết chặt để tránh nhận nhầm
+            # Policy cân bằng: Cho phép match nếu >= threshold ban đầu (0.60)
             if multiple_high_scores:
                 # Nếu có nhiều ứng viên với score cao -> luôn cần review (rủi ro nhận nhầm)
                 print(f"[WARNING] Multiple high-score candidates ({len(high_score_matches)}), forcing review to avoid false positive")
@@ -1304,16 +1358,21 @@ def face_recognize(req: FaceRecognizeRequest):
                     policy = "review"
                     needs_confirmation = True
                 matched_flag = True
-            elif best_match["cosine_similarity"] >= 0.75:
-                # Cao (>=75%) -> luôn cần review nếu delta nhỏ hoặc top2 cao
-                if delta_to_second >= 0.20 and not top2_high:
-                    policy = "auto"  # Chỉ auto nếu delta rất lớn và top2 thấp
+            elif best_match["cosine_similarity"] >= 0.70:
+                # Cao (>=70%) -> cần review nếu delta nhỏ hoặc top2 cao
+                if delta_to_second >= 0.15 and not top2_high:
+                    policy = "auto"
                 else:
                     policy = "review"
                     needs_confirmation = True
                 matched_flag = True
+            elif best_match["cosine_similarity"] >= SIMILARITY_THRESHOLD:
+                # Đạt threshold (>=0.60) -> match nhưng cần review để đảm bảo chính xác
+                policy = "review"
+                needs_confirmation = True
+                matched_flag = True  # QUAN TRỌNG: Cho phép match nếu >= threshold ban đầu
             else:
-                # Dưới 75% -> unknown (không match)
+                # Dưới threshold -> không match (không nên xảy ra vì đã filter ở trên)
                 policy = "unknown"
                 matched_flag = False
 
@@ -1340,11 +1399,20 @@ def face_recognize(req: FaceRecognizeRequest):
             # Frontend có thể hiển thị gợi ý và yêu cầu xác nhận thủ công.
             return response
         
-        print(f"[INFO] No match found in {processing_time}ms (quality: {quality_score:.1f})")
+        # Log best similarity để debug
+        if best_customer_name:
+            print(f"[INFO] No match found in {processing_time}ms (quality: {quality_score:.1f}, best_similarity: {best_similarity:.3f} with {best_customer_name}, threshold: {SIMILARITY_THRESHOLD})")
+            message = f"Không tìm thấy khách hàng phù hợp (độ tương đồng tốt nhất: {best_similarity:.1%}, ngưỡng: {SIMILARITY_THRESHOLD:.1%})"
+        else:
+            print(f"[INFO] No match found in {processing_time}ms (quality: {quality_score:.1f}, no customers in cache, threshold: {SIMILARITY_THRESHOLD})")
+            message = "Không tìm thấy khách hàng phù hợp (chưa có khách hàng nào trong hệ thống)"
         return {
             **base_response,
             "matched": False,
-            "message": "Không tìm thấy khách hàng phù hợp",
+            "message": message,
+            "best_similarity": round(best_similarity, 3) if best_customer_name else None,
+            "best_customer_name": best_customer_name,
+            "similarity_threshold": SIMILARITY_THRESHOLD,
         }
         
     except Exception as e:
@@ -1476,6 +1544,252 @@ def face_analyze(image_base64: str):
             try: os.remove(temp_path)
             except: pass
         return {"success": False, "message": f"Lỗi: {str(e)}"}
+
+
+# =============================================================================
+# FACE RECOGNITION V2 - ArcFace Implementation với Best Practices
+# =============================================================================
+# Import V2 module
+try:
+    import api_v2_arcface as v2
+    V2_AVAILABLE = True
+    # Initialize V2 on startup
+    v2.initialize_arcface_v2()
+except Exception as v2_error:
+    print(f"[WARN] Face Recognition V2 not available: {v2_error}")
+    import traceback
+    traceback.print_exc()
+    V2_AVAILABLE = False
+    v2 = None
+
+# V2 Endpoints
+@app.get("/face/v2/status")
+def face_v2_status():
+    """Status của Face Recognition V2"""
+    if not V2_AVAILABLE or v2 is None:
+        return {
+            "version": "v2",
+            "available": False,
+            "message": "Not available"
+        }
+    return {
+        "version": "v2",
+        "available": True,
+        "model_loaded": v2.ARCFACE_V2_MODEL is not None,
+        "model_small_loaded": v2.ARCFACE_V2_MODEL_SMALL is not None,
+        "faiss_available": v2.FAISS_V2_INDEX is not None,
+        "customer_cache_size": len(v2.CUSTOMER_V2_CACHE.get("customers", [])),
+        "similarity_threshold": v2.SIMILARITY_V2_THRESHOLD,
+        "quality_thresholds": {
+            "min_det_score": v2.MIN_DET_SCORE,
+            "min_area_ratio": v2.MIN_AREA_RATIO,
+            "max_area_ratio": v2.MAX_AREA_RATIO
+        },
+        "features": ["multi_scale_detection", "clahe_enhancement", "gamma_correction", "cropped_face_output"],
+        "message": "Ready (V2 - ArcFace with multi-scale detection + CLAHE)"
+    }
+
+@app.post("/face/v2/cache-customers")
+def face_v2_cache_customers(payload: CustomerCacheRequest):
+    """Preload embeddings của customers vào RAM cho V2"""
+    if not V2_AVAILABLE or v2 is None:
+        return {"ok": False, "message": "Face Recognition V2 không sẵn sàng"}
+    
+    try:
+        # payload.customers đã là list của CustomerFace objects (Pydantic models)
+        # Convert sang dict trước khi pass vào cache function
+        customers_data = [
+            {
+                "id": c.id,
+                "name": c.name,
+                "avatar_url": c.avatar_url,
+                "avatar_path": c.avatar_path
+            }
+            for c in payload.customers
+        ]
+        
+        success = v2.cache_customers_v2_embeddings(customers_data, get_avatar_path_func=get_avatar_path)
+        
+        return {
+            "ok": success,
+            "cached": len(v2.CUSTOMER_V2_CACHE.get("customers", [])),
+            "cache_version": v2.CUSTOMER_V2_CACHE.get("version", 0),
+            "message": f"Đã cache {len(v2.CUSTOMER_V2_CACHE.get('customers', []))} customers cho V2"
+        }
+    except Exception as e:
+        print(f"[ERROR] Cache V2 customers failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"ok": False, "message": str(e)}
+
+@app.post("/face/v2/recognize")
+def face_v2_recognize(req: FaceRecognizeRequest):
+    """
+    Nhận diện khuôn mặt V2 - ArcFace với Best Practices
+    """
+    start_time = time.time()
+    
+    if not V2_AVAILABLE or v2 is None or v2.ARCFACE_V2_MODEL is None:
+        return {
+            "success": False,
+            "matched": False,
+            "message": "Face Recognition V2 chưa sẵn sàng"
+        }
+    
+    temp_files = []
+    
+    try:
+        # 1. Lưu và xử lý ảnh camera
+        camera_image_path = save_base64_image(req.image_base64, "camera_v2")
+        temp_files.append(camera_image_path)
+        
+        # 2. Lấy embedding từ ảnh camera (sử dụng hàm mới với multi-scale detection + CLAHE)
+        camera_embedding, camera_face_info = v2.extract_arcface_v2_embedding_from_camera(camera_image_path)
+        
+        # Xử lý các trường hợp không detect được mặt hoặc chất lượng không đủ
+        if camera_embedding is None:
+            for f in temp_files:
+                try: os.remove(f)
+                except: pass
+            
+            # Trường hợp có face nhưng chất lượng không đủ
+            if camera_face_info and camera_face_info.get("quality_insufficient"):
+                return {
+                    "success": True,
+                    "matched": False,
+                    "face_detected": True,
+                    "face_quality": camera_face_info.get("det_score", 0) * 100,
+                    "face_box": camera_face_info.get("bbox"),
+                    "message": camera_face_info.get("message", "Chất lượng mặt không đủ"),
+                    "processing_time_ms": int((time.time() - start_time) * 1000)
+                }
+            
+            # Trường hợp hoàn toàn không detect được mặt
+            return {
+                "success": True,
+                "matched": False,
+                "face_detected": False,
+                "message": camera_face_info.get("message", "Không phát hiện khuôn mặt") if camera_face_info else "Không phát hiện khuôn mặt. Hãy đảm bảo khuôn mặt rõ ràng trong khung hình.",
+                "processing_time_ms": int((time.time() - start_time) * 1000)
+            }
+        
+        # 3. Chuẩn bị danh sách customers
+        if req.customers and len(req.customers) > 0:
+            v2.cache_customers_v2_embeddings(
+                [
+                    {
+                        "id": c.id,
+                        "name": c.name,
+                        "avatar_url": c.avatar_url,
+                        "avatar_path": c.avatar_path
+                    }
+                    for c in [CustomerFace(**c) for c in req.customers]
+                ],
+                get_avatar_path_func=get_avatar_path
+            )
+        
+        # 4. Search trong cache
+        best_match = None
+        best_similarity = 0.0
+        best_customer_name = None
+        
+        if v2.FAISS_V2_INDEX is not None and len(v2.FAISS_V2_ID_MAP) > 0:
+            # Dùng FAISS để tìm candidates
+            candidates = v2.search_faiss_v2_candidates(camera_embedding, top_k=50)
+            
+            for idx, similarity in candidates:
+                if similarity > best_similarity:
+                    best_similarity = similarity
+                    meta = v2.FAISS_V2_ID_MAP[idx]
+                    best_match = {
+                        "customer_id": meta["customer_id"],
+                        "customer_name": meta["customer_name"],
+                        "cosine_similarity": similarity,
+                        "avatar_quality": meta.get("avatar_quality", 0.0)
+                    }
+                    best_customer_name = meta["customer_name"]
+        else:
+            # Fallback: linear search
+            for customer_data in v2.CUSTOMER_V2_CACHE.get("customers", []):
+                avatar_emb = np.array(customer_data["embedding"], dtype=np.float32)
+                similarity_result = v2.compute_similarity_v2(camera_embedding, avatar_emb)
+                similarity = similarity_result["cosine_similarity"]
+                
+                if similarity > best_similarity:
+                    best_similarity = similarity
+                    best_match = {
+                        "customer_id": customer_data["customer_id"],
+                        "customer_name": customer_data["customer_name"],
+                        "cosine_similarity": similarity,
+                        "avatar_quality": customer_data.get("avatar_quality", 0.0)
+                    }
+                    best_customer_name = customer_data["customer_name"]
+        
+        # 5. Check threshold
+        processing_time = int((time.time() - start_time) * 1000)
+        # Lấy quality từ det_score (đã là 0-1, nhân 100 để thành %)
+        quality_score = camera_face_info.get("det_score", 0.0) * 100 if camera_face_info else 0.0
+        cropped_face = camera_face_info.get("cropped_face_base64") if camera_face_info else None
+        
+        if best_match and best_similarity >= v2.SIMILARITY_V2_THRESHOLD:
+            for f in temp_files:
+                try: os.remove(f)
+                except: pass
+            
+            print(f"[INFO] V2 Match found in {processing_time}ms (quality: {quality_score:.1f}, similarity: {best_similarity:.3f}, threshold: {v2.SIMILARITY_V2_THRESHOLD})")
+            
+            return {
+                "success": True,
+                "matched": True,
+                "face_detected": True,
+                "customer_id": best_match["customer_id"],
+                "customer_name": best_match["customer_name"],
+                "similarity": round(best_similarity, 4),
+                "similarity_percent": round(best_similarity * 100, 2),
+                "face_quality": round(quality_score, 1),
+                "face_box": camera_face_info.get("bbox"),
+                "cropped_face": cropped_face,  # Them cropped_face cho frontend
+                "similarity_threshold": v2.SIMILARITY_V2_THRESHOLD,
+                "processing_time_ms": processing_time,
+                "detection_method": camera_face_info.get("detection_method"),
+                "enhanced": camera_face_info.get("enhanced", False)
+            }
+        else:
+            for f in temp_files:
+                try: os.remove(f)
+                except: pass
+            
+            print(f"[INFO] V2 No match found in {processing_time}ms (quality: {quality_score:.1f}, best_similarity: {best_similarity:.3f}, threshold: {v2.SIMILARITY_V2_THRESHOLD})")
+            
+            return {
+                "success": True,
+                "matched": False,
+                "face_detected": True,
+                "face_quality": round(quality_score, 1),
+                "face_box": camera_face_info.get("bbox"),
+                "cropped_face": cropped_face,  # Them cropped_face cho frontend luu khach moi
+                "best_similarity": round(best_similarity, 4) if best_match else 0.0,
+                "best_customer_name": best_customer_name if best_match else None,
+                "similarity_threshold": v2.SIMILARITY_V2_THRESHOLD,
+                "message": f"Không tìm thấy khách hàng phù hợp (độ tương đồng tốt nhất: {best_similarity:.1%}, ngưỡng: {v2.SIMILARITY_V2_THRESHOLD:.1%})",
+                "processing_time_ms": processing_time,
+                "detection_method": camera_face_info.get("detection_method"),
+                "enhanced": camera_face_info.get("enhanced", False)
+            }
+        
+    except Exception as e:
+        for f in temp_files:
+            try: os.remove(f)
+            except: pass
+        print(f"[ERROR] V2 Recognition failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "success": False,
+            "matched": False,
+            "message": f"Lỗi: {str(e)}",
+            "processing_time_ms": int((time.time() - start_time) * 1000)
+        }
 
 
 if __name__ == "__main__":

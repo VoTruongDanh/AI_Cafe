@@ -302,6 +302,17 @@ export const faceRecognitionApi = {
   }), // NV update avatar thủ công
 }
 
+// Face Recognition V2 API (ArcFace)
+export const faceRecognitionV2Api = {
+  checkStatus: () => api.get('/admin/face/v2/status'),
+  getCustomers: () => api.get('/admin/face/v2/customers'),
+  recognize: (imageBase64) => {
+    const url = `${API_URL}/admin/face/v2/recognize`;
+    console.log('[API V2] Calling recognize:', url);
+    return api.post('/admin/face/v2/recognize', { image_base64: imageBase64 });
+  },
+}
+
 // Admin Categories API
 export const adminCategoriesApi = {
   getAll: () => api.get('/admin/categories'),

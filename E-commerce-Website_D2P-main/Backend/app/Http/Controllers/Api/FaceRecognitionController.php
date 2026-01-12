@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\DB;
 use App\Http\Controllers\Controller;
+use Illuminate\Http\Client\ConnectionException;
 use OpenApi\Annotations as OA;
 
 class FaceRecognitionController extends Controller
@@ -94,7 +95,7 @@ class FaceRecognitionController extends Controller
             'image_length' => strlen($imageBase64),
             'image_preview' => substr($imageBase64, 0, 50) . '...'
         ]);
-        // Chuẩn bị cache customers cho AI Service nếu chưa có hoặc quá cũ
+        // Lấy danh sách customers có avatar
         $customers = User::whereNotNull('avatar')
             ->where('avatar', '!=', '')
             ->select('id', 'name', 'email', 'phone', 'avatar', 'loyalty_tier', 'loyalty_points', 'created_at')
@@ -105,38 +106,90 @@ class FaceRecognitionController extends Controller
             'isEmpty' => $customers->isEmpty()
         ]);
 
-        // Nếu chưa có khách hàng nào có avatar, vẫn cho phép detect face nhưng không match được
-        // Cache khách hàng lên AI Service (chỉ cache nếu có customers)
+        // Cache customers lên AI Service (chỉ cache nếu có customers và cache chưa có)
+        // Cache một lần, không phải mỗi request để tránh chậm
         if (!$customers->isEmpty()) {
             try {
-                Http::timeout(15)
+                // Kiểm tra cache có sẵn không bằng cách gọi status (nhanh hơn)
+                // Tăng timeout từ 2s lên 3s để tránh timeout khi AI service đang xử lý
+                $statusResponse = Http::timeout(3)
                     ->withoutVerifying()
-                    ->post($this->aiServiceUrl . '/face/cache-customers', [
-                        'customers' => $customers->map(function ($customer) {
-                            return [
-                                'id' => $customer->id,
-                                'name' => $customer->name,
-                                'avatar_url' => url($customer->avatar),
-                                'avatar_path' => $customer->avatar,
-                            ];
-                        })->toArray()
-                    ]);
+                    ->get($this->aiServiceUrl . '/face/status');
+                
+                if ($statusResponse->successful()) {
+                    $statusData = $statusResponse->json();
+                    $cachedCount = $statusData['customer_cache_size'] ?? 0;
+                    $dbCount = $customers->count();
+                    
+                    // Chỉ cache nếu cache chưa có hoặc số lượng khác nhau
+                    if ($cachedCount == 0 || $cachedCount != $dbCount) {
+                        \Log::info('[FaceRecognition] Cache customers needed (cached: ' . $cachedCount . ', db: ' . $dbCount . ')');
+                        // Cache trong background (async) để không chặn request
+                        // Nhưng vì Laravel không có async HTTP, nên chỉ tăng timeout để không block quá lâu
+                        $cacheResponse = Http::timeout(15)
+                            ->withoutVerifying()
+                            ->post($this->aiServiceUrl . '/face/cache-customers', [
+                                'customers' => $customers->map(function ($customer) {
+                                    return [
+                                        'id' => $customer->id,
+                                        'name' => $customer->name,
+                                        'avatar_url' => url($customer->avatar),
+                                        'avatar_path' => $customer->avatar,
+                                    ];
+                                })->toArray()
+                            ]);
+                        
+                        if ($cacheResponse->successful()) {
+                            \Log::info('[FaceRecognition] ✅ Cache customers completed (version: ' . ($cacheResponse->json()['version'] ?? 'N/A') . ')');
+                        } else {
+                            \Log::warning('[FaceRecognition] Cache customers failed', ['status' => $cacheResponse->status()]);
+                        }
+                    } else {
+                        // Cache đã đầy đủ - không cần rebuild
+                        // Không log để giảm noise (chỉ log khi cần cache)
+                    }
+                } else {
+                    \Log::warning('[FaceRecognition] Status check failed', ['status' => $statusResponse->status()]);
+                }
             } catch (\Exception $e) {
                 // Không chặn flow nếu cache thất bại; tiếp tục recognize
-                \Log::warning('[FaceRecognition] Failed to cache customers', ['error' => $e->getMessage()]);
+                \Log::warning('[FaceRecognition] Failed to check/cache customers', ['error' => $e->getMessage()]);
             }
-        } else {
-            \Log::info('[FaceRecognition] No customers with avatar - will still detect face but no matching');
         }
 
         // Gửi request đến AI Service để nhận diện (chỉ gửi ảnh, không gửi lại customers)
         try {
             \Log::info('[FaceRecognition] Calling AI Service', ['url' => $this->aiServiceUrl . '/face/recognize']);
-            $response = Http::timeout(30)
-                ->withoutVerifying()
-                ->post($this->aiServiceUrl . '/face/recognize', [
-                    'image_base64' => $imageBase64
+            try {
+                $response = Http::timeout(5)
+                    ->withoutVerifying()
+                    ->post($this->aiServiceUrl . '/face/recognize', [
+                        'image_base64' => $imageBase64
+                    ]);
+            } catch (ConnectionException $e) {
+                \Log::error('[FaceRecognition] AI Service connection failed', [
+                    'error' => $e->getMessage(),
+                    'url' => $this->aiServiceUrl . '/face/recognize'
                 ]);
+                return response()->json([
+                    'success' => false,
+                    'message' => 'AI Service không phản hồi. Vui lòng kiểm tra lại.',
+                    'error' => 'AI Service timeout or connection error',
+                    'face_detected' => false,
+                ], 500);
+            } catch (\Exception $e) {
+                \Log::error('[FaceRecognition] AI Service request failed', [
+                    'error' => $e->getMessage(),
+                    'type' => get_class($e),
+                    'url' => $this->aiServiceUrl . '/face/recognize'
+                ]);
+                return response()->json([
+                    'success' => false,
+                    'message' => 'AI Service không phản hồi. Vui lòng kiểm tra lại.',
+                    'error' => 'AI Service error: ' . $e->getMessage(),
+                    'face_detected' => false,
+                ], 500);
+            }
             
             \Log::info('[FaceRecognition] AI Service response', [
                 'status' => $response->status(),
@@ -272,7 +325,7 @@ class FaceRecognitionController extends Controller
         ]);
 
         try {
-            $response = Http::timeout(30)
+            $response = Http::timeout(10)
                 ->withoutVerifying()
                 ->post($this->aiServiceUrl . '/face/detect', [
                     'image_base64' => $request->input('image_base64'),
