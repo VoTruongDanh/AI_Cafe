@@ -6,7 +6,7 @@ import axios from 'axios'
  * - Production: sử dụng VITE_API_URL từ .env
  */
 export const getApiUrl = () => {
-  return import.meta.env.DEV 
+  return import.meta.env.DEV
     ? 'http://localhost:8000/api'  // Development: dùng absolute URL để bypass proxy
     : (import.meta.env.VITE_API_URL || 'http://localhost:8000/api')  // Production
 }
@@ -85,12 +85,12 @@ api.interceptors.response.use(
     if (error.response?.status === 401) {
       localStorage.removeItem('token')
       localStorage.removeItem('user')
-      
+
       // Chỉ redirect đến login nếu đang ở trang cần auth (không phải trang public)
       const publicPaths = ['/', '/products', '/login', '/register', '/forgot-password', '/reset-password']
       const currentPath = window.location.pathname
       const isPublicPage = publicPaths.some(path => currentPath === path || currentPath.startsWith('/products'))
-      
+
       if (!isPublicPage) {
         window.location.href = '/login'
       }
@@ -159,7 +159,7 @@ export const productsApi = {
 
     return api.get('/products', { params: query })
   },
-  getProductDetail: (id) => api.get(`/products/${id}`, { 
+  getProductDetail: (id) => api.get(`/products/${id}`, {
     params: { _t: Date.now() } // Cache busting
   }),
   searchProducts: (query) => api.get('/products', { params: { search: query } }),
@@ -296,9 +296,9 @@ export const faceRecognitionApi = {
   },
   detect: (imageBase64) => api.post('/admin/face/detect', { image_base64: imageBase64 }), // Debug
   clearCache: () => api.post('/admin/face/clear-cache'),
-  updateAvatar: (customerId, croppedFace) => api.post('/admin/face/update-avatar', { 
-    customer_id: customerId, 
-    cropped_face: croppedFace 
+  updateAvatar: (customerId, croppedFace) => api.post('/admin/face/update-avatar', {
+    customer_id: customerId,
+    cropped_face: croppedFace
   }), // NV update avatar thủ công
 }
 
@@ -306,10 +306,11 @@ export const faceRecognitionApi = {
 export const faceRecognitionV2Api = {
   checkStatus: () => api.get('/admin/face/v2/status'),
   getCustomers: () => api.get('/admin/face/v2/customers'),
+  cacheCustomers: (data) => api.post('/admin/face/v2/cache-customers', data),
   recognize: (imageBase64) => {
     const url = `${API_URL}/admin/face/v2/recognize`;
     console.log('[API V2] Calling recognize:', url);
-    return api.post('/admin/face/v2/recognize', { image_base64: imageBase64 });
+    return api.post('/admin/face/v2/recognize', { image_base64: imageBase64 }, { timeout: 60000 });
   },
 }
 

@@ -12,7 +12,7 @@ from typing import Optional, List, Tuple
 import joblib
 import requests
 import numpy as np
-from fastapi import FastAPI
+from fastapi import FastAPI, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -108,11 +108,12 @@ try:
             # Input size: 112x112, Output: 512D (hoặc tùy model)
             # FIX: Phải load cả detection (InsightFace yêu cầu), nhưng chúng ta sẽ không dùng nó
             # Thay vào đó, SCRFD đã detect face, chúng ta chỉ dùng recognition module của ArcFace
-            ARCFACE_MODEL = insightface.app.FaceAnalysis(
-                providers=['CUDAExecutionProvider', 'CPUExecutionProvider'] if torch.cuda.is_available() else ['CPUExecutionProvider']
-            )
-            ctx_id = 0 if not torch.cuda.is_available() else -1
-            ARCFACE_MODEL.prepare(ctx_id=ctx_id, det_size=(640, 640))
+            # CPU Execution Provider (Stable)
+            providers = ['CPUExecutionProvider']
+            ctx_id = 0
+            
+            ARCFACE_MODEL = insightface.app.FaceAnalysis(providers=providers)
+            ARCFACE_MODEL.prepare(ctx_id=ctx_id, det_size=(320, 320))
             EMBEDDING_MODEL = ARCFACE_MODEL
             EMBEDDING_INPUT_SIZE = 112  # ArcFace dùng 112x112
             print("[INFO] [OK] ArcFace model loaded (InsightFace, input=112x112, with detection+recognition)")
@@ -178,6 +179,18 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.on_event("startup")
+async def startup_event():
+    print("[INFO] Startup: Initializing ArcFace V2 System...")
+    try:
+        import api_v2_arcface as v2
+        if v2.init_arcface_v2_system():
+             print("[INFO] [OK] ArcFace V2 System Initialized Successfully")
+        else:
+             print("[ERROR] ArcFace V2 System Initialization FAILED")
+    except Exception as e:
+        print(f"[ERROR] Startup init failed: {e}")
 
 def normalize_vi(s: str) -> str:
     if not s:
@@ -393,7 +406,7 @@ CUSTOMER_CACHE = {
 }
 
 # Ngưỡng nhận diện - Cân bằng giữa độ chính xác và độ nhạy
-SIMILARITY_THRESHOLD = 0.60  # Cosine >= 0.60 mới được coi là match (revert về giá trị ban đầu)
+SIMILARITY_THRESHOLD = 0.65  # Cosine >= 0.65 mới được coi là match (User req: increase to 65%)
 DISTANCE_THRESHOLD = 0.80    # Euclidean < 0.80
 
 
@@ -1566,28 +1579,51 @@ except Exception as v2_error:
 @app.get("/face/v2/status")
 def face_v2_status():
     """Status của Face Recognition V2"""
-    if not V2_AVAILABLE or v2 is None:
+    try:
+        # Check if v2 module is available
+        if 'v2' not in globals() or v2 is None:
+             return {
+                "version": "v2",
+                "available": False,
+                "ai_service": "online",
+                "message": "V2 module not loaded (v2 is None)"
+            }
+            
+        if not V2_AVAILABLE:
+            return {
+                "version": "v2",
+                "available": False,
+                "ai_service": "online",
+                "message": "V2 not available (V2_AVAILABLE=False)"
+            }
+            
+        return {
+            "version": "v2",
+            "available": True,
+            "ai_service": "online",  # FIX: Match frontend contract
+            "model_loaded": getattr(v2, 'ARCFACE_V2_MODEL', None) is not None,
+            "model_small_loaded": getattr(v2, 'ARCFACE_V2_MODEL_SMALL', None) is not None,
+            "faiss_available": getattr(v2, 'FAISS_V2_INDEX', None) is not None,
+            "customer_cache_size": len(v2.CUSTOMER_V2_CACHE.get("customers", [])) if getattr(v2, 'CUSTOMER_V2_CACHE', None) else 0,
+            "similarity_threshold": getattr(v2, 'SIMILARITY_V2_THRESHOLD', 0.4),
+            "quality_thresholds": {
+                "min_det_score": getattr(v2, 'MIN_DET_SCORE', 0.5),
+                "min_area_ratio": getattr(v2, 'MIN_AREA_RATIO', 0.01),
+                "max_area_ratio": getattr(v2, 'MAX_AREA_RATIO', 0.4)
+            },
+            "features": ["multi_scale_detection", "clahe_enhancement", "gamma_correction", "cropped_face_output"],
+            "message": "Ready (V2 - ArcFace with multi-scale detection + CLAHE)"
+        }
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
         return {
             "version": "v2",
             "available": False,
-            "message": "Not available"
+            "ai_service": "online", 
+            "message": f"Status Check Failed: {str(e)}",
+            "error_details": str(e)
         }
-    return {
-        "version": "v2",
-        "available": True,
-        "model_loaded": v2.ARCFACE_V2_MODEL is not None,
-        "model_small_loaded": v2.ARCFACE_V2_MODEL_SMALL is not None,
-        "faiss_available": v2.FAISS_V2_INDEX is not None,
-        "customer_cache_size": len(v2.CUSTOMER_V2_CACHE.get("customers", [])),
-        "similarity_threshold": v2.SIMILARITY_V2_THRESHOLD,
-        "quality_thresholds": {
-            "min_det_score": v2.MIN_DET_SCORE,
-            "min_area_ratio": v2.MIN_AREA_RATIO,
-            "max_area_ratio": v2.MAX_AREA_RATIO
-        },
-        "features": ["multi_scale_detection", "clahe_enhancement", "gamma_correction", "cropped_face_output"],
-        "message": "Ready (V2 - ArcFace with multi-scale detection + CLAHE)"
-    }
 
 @app.post("/face/v2/cache-customers")
 def face_v2_cache_customers(payload: CustomerCacheRequest):
@@ -1624,6 +1660,11 @@ def face_v2_cache_customers(payload: CustomerCacheRequest):
 
 @app.post("/face/v2/recognize")
 def face_v2_recognize(req: FaceRecognizeRequest):
+    # LAZY INIT CHECK
+    import api_v2_arcface as v2
+    if v2.ARCFACE_V2_MODEL is None:
+         print("[INFO] V2 Model is None. Triggering LAZY INITIALIZATION...")
+         v2.init_arcface_v2_system()
     """
     Nhận diện khuôn mặt V2 - ArcFace với Best Practices
     """
@@ -1639,11 +1680,15 @@ def face_v2_recognize(req: FaceRecognizeRequest):
     temp_files = []
     
     try:
+
         # 1. Lưu và xử lý ảnh camera
+        print("[DEBUG] Saving base64 image to disk...")
         camera_image_path = save_base64_image(req.image_base64, "camera_v2")
+        print(f"[DEBUG] Image saved to: {camera_image_path}")
         temp_files.append(camera_image_path)
         
         # 2. Lấy embedding từ ảnh camera (sử dụng hàm mới với multi-scale detection + CLAHE)
+        # Note: extract_arcface_v2_embedding_from_camera now accepts path string
         camera_embedding, camera_face_info = v2.extract_arcface_v2_embedding_from_camera(camera_image_path)
         
         # Xử lý các trường hợp không detect được mặt hoặc chất lượng không đủ
@@ -1738,17 +1783,23 @@ def face_v2_recognize(req: FaceRecognizeRequest):
             
             print(f"[INFO] V2 Match found in {processing_time}ms (quality: {quality_score:.1f}, similarity: {best_similarity:.3f}, threshold: {v2.SIMILARITY_V2_THRESHOLD})")
             
+            # Chuyển đổi similarity thành độ tin cậy % thân thiện người dùng
+            confidence = v2.similarity_to_confidence(best_similarity)
+            print(f"[INFO] V2 Confidence: {confidence}% (from similarity: {best_similarity:.3f})")
+            
             return {
                 "success": True,
                 "matched": True,
                 "face_detected": True,
                 "customer_id": best_match["customer_id"],
                 "customer_name": best_match["customer_name"],
-                "similarity": round(best_similarity, 4),
+                "confidence": confidence,  # Độ tin cậy % (75-99%)
+                "confidence_display": f"{confidence}%",  # Hiển thị cho UI
+                "similarity": round(best_similarity, 4),  # Raw similarity (cho debug)
                 "similarity_percent": round(best_similarity * 100, 2),
                 "face_quality": round(quality_score, 1),
                 "face_box": camera_face_info.get("bbox"),
-                "cropped_face": cropped_face,  # Them cropped_face cho frontend
+                "cropped_face": cropped_face,
                 "similarity_threshold": v2.SIMILARITY_V2_THRESHOLD,
                 "processing_time_ms": processing_time,
                 "detection_method": camera_face_info.get("detection_method"),
@@ -1792,6 +1843,26 @@ def face_v2_recognize(req: FaceRecognizeRequest):
         }
 
 
+# =============================================================================
+# ROUTE ALIASING (Fix for Port 8000/Prefix Mismatch)
+# =============================================================================
+# Add /api/admin prefix support for users running uvicorn directly on port 8000
+admin_router = APIRouter(prefix="/api/admin")
+
+@admin_router.get("/face/v2/status")
+def admin_face_v2_status():
+    return face_v2_status()
+
+@admin_router.post("/face/v2/cache-customers")
+def admin_face_v2_cache_customers(payload: CustomerCacheRequest):
+    return face_v2_cache_customers(payload)
+
+@admin_router.post("/face/v2/recognize")
+def admin_face_v2_recognize(req: FaceRecognizeRequest):
+    return face_v2_recognize(req)
+
+app.include_router(admin_router)
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=9009)
+    uvicorn.run("api:app", host="127.0.0.1", port=9009, reload=True)

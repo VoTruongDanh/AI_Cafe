@@ -8,8 +8,33 @@
 import numpy as np
 import cv2
 import time
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Union
 from pathlib import Path
+import base64
+
+def crop_face_to_base64(img_cv, bbox, margin=20):
+    """
+    Helper: Crop face từ ảnh và convert sang base64 để hiển thị trên UI
+    """
+    try:
+        h, w = img_cv.shape[:2]
+        x1, y1, x2, y2 = [int(val) for val in bbox]
+        
+        # Add margin to make avatar look better
+        x1 = max(0, x1 - margin)
+        y1 = max(0, y1 - margin)
+        x2 = min(w, x2 + margin)
+        y2 = min(h, y2 + margin)
+        
+        face_img = img_cv[y1:y2, x1:x2]
+        if face_img.size == 0: return None
+        
+        _, buffer = cv2.imencode('.jpg', face_img)
+        img_base64 = base64.b64encode(buffer).decode('utf-8')
+        return f"data:image/jpeg;base64,{img_base64}"
+    except Exception as e:
+        print(f"[ERROR] Failed to crop face to base64: {e}")
+        return None
 
 # Global variables cho V2
 ARCFACE_V2_MODEL = None  # Main model với det_size=(640,640) cho camera images
@@ -19,40 +44,52 @@ SCRFD_V2_DETECTOR = None  # SCRFD detector riêng cho V2 (như V1)
 FAISS_V2_INDEX = None
 FAISS_V2_ID_MAP = []
 CUSTOMER_V2_CACHE = {"version": 0, "updated_at": 0, "customers": []}
-SIMILARITY_V2_THRESHOLD = 0.40  # Best practice: 0.35-0.45 cho 1-N recognition
+# ============== THRESHOLDS TỐI ƯU CHO TỐC ĐỘ NHANH ==============
+# Mục tiêu: 1-2 giây tổng từ khi đưa mặt vào đến khi nhận diện xong
+SIMILARITY_V2_THRESHOLD = 0.55  # Ngưỡng match cơ bản
+INSTANT_MATCH_THRESHOLD = 0.60  # Giảm từ 0.70 xuống 0.60 để instant nhanh hơn
+VOTING_STREAK_REQUIRED = 2      # Giảm từ 3 xuống 2 - chỉ cần 2 matches liên tiếp
+MAX_SCANS_BEFORE_NEW_CUSTOMER = 4
+MIN_DET_SCORE = 0.60
+MIN_AREA_RATIO = 0.02
+MAX_AREA_RATIO = 0.40
 
-# Quality thresholds
-MIN_DET_SCORE = 0.50  # Minimum detection confidence
-MIN_AREA_RATIO = 0.015  # Face phải chiếm ít nhất 1.5% ảnh
-MAX_AREA_RATIO = 0.40  # Face không vượt quá 40% ảnh
 
 def initialize_arcface_v2():
     """Initialize ArcFace V2 model theo best practices với multi-scale detection"""
-    global ARCFACE_V2_MODEL, ARCFACE_V2_MODEL_SMALL
+    global ARCFACE_V2_MODEL, ARCFACE_V2_MODEL_SMALL, FAISS_V2_INDEX, FAISS_V2_ID_MAP, SCRFD_V2_DETECTOR
+    
+    print("[INFO] Initializing ArcFace V2 System (High Accuracy Mode)...")
     
     try:
         import insightface
-        import torch
         
-        print("[INFO] Initializing ArcFace V2 (best practices with multi-scale detection)...")
-        print("[INFO] Pipeline: Multi-scale SCRFD -> ArcFace (full image, auto-align) -> CLAHE fallback -> FAISS matching")
+        # ==== TỐI ƯU TỐC ĐỘ: Chỉ load detection + recognition (bỏ landmark, genderage) ====
+        # Điều này giảm đáng kể thời gian load và inference
+        model_name = 'buffalo_l'
         
-        providers = ['CUDAExecutionProvider', 'CPUExecutionProvider'] if torch.cuda.is_available() else ['CPUExecutionProvider']
-        ctx_id = 0 if not torch.cuda.is_available() else -1
+        print(f"[INFO] Loading OPTIMIZED ArcFace model: {model_name} (detection + recognition only)...")
         
-        # Main model: det_size=(640, 640) cho camera images (640x480 hoặc lớn hơn)
-        ARCFACE_V2_MODEL = insightface.app.FaceAnalysis(providers=providers)
-        ARCFACE_V2_MODEL.prepare(ctx_id=ctx_id, det_size=(640, 640))
-        print("[INFO] [OK] ArcFace V2 main model loaded (det_size=640x640 for camera)")
+        # CPU Execution Provider
+        providers = ['CPUExecutionProvider']
+        ctx_id = 0
         
-        # Small model: det_size=(256, 256) cho avatar images nhỏ (200x200)
-        ARCFACE_V2_MODEL_SMALL = insightface.app.FaceAnalysis(providers=providers)
-        ARCFACE_V2_MODEL_SMALL.prepare(ctx_id=ctx_id, det_size=(256, 256))
-        print("[INFO] [OK] ArcFace V2 small model loaded (det_size=256x256 for avatars)")
+        # CHỈ load detection + recognition, BỎ landmark và genderage để tăng tốc
+        ARCFACE_V2_MODEL = insightface.app.FaceAnalysis(
+            name=model_name, 
+            providers=providers,
+            allowed_modules=['detection', 'recognition']  # CHỈ load 2 modules cần thiết
+        )
+        ARCFACE_V2_MODEL.prepare(ctx_id=ctx_id, det_size=(256, 256))
+        print(f"[INFO] [OK] ArcFace V2 FAST model loaded (Model: {model_name}, det_size=256x256, modules=det+rec only)")
         
-        print("[INFO] [OK] Best practices: Full image -> Auto detect -> Auto align -> Extract embedding")
-        print("[INFO] [OK] Threshold: 0.40 (optimized for 1-N recognition)")
-        print("[INFO] [OK] CLAHE enhancement enabled for low-light conditions")
+        # Small model: Không cần
+        ARCFACE_V2_MODEL_SMALL = None
+        print("[INFO] Small model DISABLED")
+        
+        print("[INFO] [OK] OPTIMIZED: Skipped landmark_3d_68, landmark_2d_106, genderage modules")
+        print(f"[INFO] [OK] Threshold: {SIMILARITY_V2_THRESHOLD} (match), {INSTANT_MATCH_THRESHOLD} (instant)")
+        print("[INFO] [OK] Expected speed: < 500ms per recognition")
         
         return True
     except Exception as e:
@@ -60,6 +97,35 @@ def initialize_arcface_v2():
         import traceback
         traceback.print_exc()
         return False
+
+
+def init_arcface_v2_system():
+    """
+    Khởi tạo hệ thống ArcFace V2 và CLEAR cache cũ.
+    Gọi hàm này khi server khởi động để đảm bảo embeddings được extract bằng model mới.
+    """
+    global CUSTOMER_V2_CACHE, FAISS_V2_INDEX, FAISS_V2_ID_MAP
+    
+    print("[INFO] ============================================")
+    print("[INFO] Initializing ArcFace V2 System...")
+    print("[INFO] ============================================")
+    
+    # 1. Clear cache cũ (embeddings từ model cũ không tương thích)
+    CUSTOMER_V2_CACHE = {"version": 0, "updated_at": 0, "customers": []}
+    FAISS_V2_INDEX = None
+    FAISS_V2_ID_MAP = []
+    print("[INFO] Cleared old cache (embeddings will be re-extracted with new model)")
+    
+    # 2. Initialize model
+    success = initialize_arcface_v2()
+    
+    if success:
+        print("[INFO] ============================================")
+        print("[INFO] ArcFace V2 System READY!")
+        print(f"[INFO] Threshold: {SIMILARITY_V2_THRESHOLD} (match), {INSTANT_MATCH_THRESHOLD} (instant)")
+        print("[INFO] ============================================")
+    
+    return success
 
 
 def enhance_image_clahe(img_cv):
@@ -142,7 +208,10 @@ def extract_arcface_v2_embedding(image_path: str) -> Tuple[Optional[np.ndarray],
     global ARCFACE_V2_MODEL_SMALL, ARCFACE_V2_MODEL
     
     # Ưu tiên dùng small model cho avatar, fallback sang main model
-    model = ARCFACE_V2_MODEL_SMALL if ARCFACE_V2_MODEL_SMALL is not None else ARCFACE_V2_MODEL
+    # FIX: Luôn dùng ARCFACE_V2_MODEL (Main Model) để đảm bảo consistency với Camera Embedding
+    # Nếu dùng mixed models (small cho avatar, main cho camera) sẽ bị lệch vector space -> Similarity thấp
+    model = ARCFACE_V2_MODEL
+    # model = ARCFACE_V2_MODEL_SMALL if ARCFACE_V2_MODEL_SMALL is not None else ARCFACE_V2_MODEL
     
     if model is None:
         return None, None
@@ -204,15 +273,9 @@ def extract_arcface_v2_embedding(image_path: str) -> Tuple[Optional[np.ndarray],
         return None, None
 
 
-def extract_arcface_v2_embedding_from_camera(image_path: str) -> Tuple[Optional[np.ndarray], Optional[dict]]:
+def extract_arcface_v2_embedding_from_camera(image_input: Union[str, np.ndarray]) -> Tuple[Optional[np.ndarray], Optional[dict]]:
     """
-    Extract ArcFace V2 embedding từ ảnh camera với:
-    - Multi-scale detection (thử các det_size khác nhau)
-    - CLAHE enhancement fallback khi không detect được mặt
-    - Quality validation (det_score, area ratio)
-    - Trả về cropped_face base64 cho frontend
-    
-    BEST PRACTICE cho camera images (640x480 hoặc lớn hơn)
+    Extract ArcFace V2 embedding từ ảnh camera (path hoặc numpy array)
     """
     global ARCFACE_V2_MODEL, ARCFACE_V2_MODEL_SMALL
     
@@ -222,50 +285,44 @@ def extract_arcface_v2_embedding_from_camera(image_path: str) -> Tuple[Optional[
     
     try:
         # Load image
-        img_cv = cv2.imread(image_path)
+        img_cv = None
+        input_desc = "memory_matrix"
+        
+        if isinstance(image_input, str):
+            img_cv = cv2.imread(image_input)
+            input_desc = image_input
+        elif isinstance(image_input, np.ndarray):
+            img_cv = image_input
+            
         if img_cv is None:
-            print(f"[WARN] Failed to load image: {image_path}")
+            print(f"[WARN] Failed to load image: {input_desc}")
             return None, None
         
         h, w = img_cv.shape[:2]
         img_area = h * w
         print(f"[INFO] V2 Camera image: {w}x{h}")
         
-        # ========== STEP 1: Thử main model (640x640) ========== 
+        # ========== STEP 1: Main model buffalo_s (det_size=256x256) - OPTIMIZED ========== 
         faces_detected = ARCFACE_V2_MODEL.get(img_cv)
-        detection_method = "arcface_640"
+        detection_method = "arcface_256"
         enhanced = False
         
-        # ========== STEP 2: Fallback - CLAHE enhancement ========== 
+        # ========== STEP 2: Fallback - CLAHE only (OPTIMIZED: removed Gamma + Small model) ========== 
         if faces_detected is None or len(faces_detected) == 0:
             print("[INFO] V2 Main model failed, trying CLAHE enhancement...")
             img_enhanced = enhance_image_clahe(img_cv)
             faces_detected = ARCFACE_V2_MODEL.get(img_enhanced)
             if faces_detected and len(faces_detected) > 0:
-                detection_method = "arcface_640_clahe"
+                detection_method = "arcface_256_clahe"
                 enhanced = True
                 img_cv = img_enhanced  # Dùng ảnh đã enhance cho crop
         
-        # ========== STEP 3: Fallback - Gamma correction ========== 
-        if faces_detected is None or len(faces_detected) == 0:
-            print("[INFO] V2 CLAHE failed, trying gamma correction...")
-            img_gamma = enhance_image_gamma(img_cv, gamma=1.5)
-            faces_detected = ARCFACE_V2_MODEL.get(img_gamma)
-            if faces_detected and len(faces_detected) > 0:
-                detection_method = "arcface_640_gamma"
-                enhanced = True
-                img_cv = img_gamma
-        
-        # ========== STEP 4: Fallback - Small model ========== 
-        if (faces_detected is None or len(faces_detected) == 0) and ARCFACE_V2_MODEL_SMALL is not None:
-            print("[INFO] V2 Main model failed, trying small model (256x256)...")
-            faces_detected = ARCFACE_V2_MODEL_SMALL.get(img_cv)
-            if faces_detected and len(faces_detected) > 0:
-                detection_method = "arcface_256"
+        # ========== REMOVED: Gamma correction fallback - không cần, CLAHE đủ tốt ==========
+        # ========== REMOVED: Small model fallback - đã dùng buffalo_s làm main ==========
         
         # ========== NO FACE DETECTED ========== 
         if faces_detected is None or len(faces_detected) == 0:
-            print(f"[WARN] V2 No faces detected in camera image after all attempts: {image_path}")
+            print(f"[WARN] V2 No faces detected in camera image: {input_desc}")
             return None, {
                 "face_detected": False,
                 "message": "Không phát hiện khuôn mặt sau nhiều lần thử"
@@ -393,6 +450,8 @@ def cache_customers_v2_embeddings(customers_data: List[dict], get_avatar_path_fu
                 print(f"[WARN] Failed to extract embedding for {customer.get('name')} (avatar_path: {avatar_path})")
                 continue
             
+            print(f"[DEBUG] Caching customer: {customer.get('name')} (ID: {customer.get('id')}) - Quality: {face_info.get('det_score', 0.0) * 100:.1f}")
+            
             cached_list.append({
                 "customer_id": customer.get("id"),
                 "customer_name": customer.get("name"),
@@ -505,3 +564,41 @@ def compute_similarity_v2(emb1: np.ndarray, emb2: np.ndarray) -> dict:
             "euclidean_distance": float('inf'),
             "is_match": False
         }
+
+
+def similarity_to_confidence(similarity: float) -> float:
+    """
+    Chuyển đổi cosine similarity thành độ tin cậy % thân thiện người dùng.
+    
+    Ánh xạ:
+    - similarity = 0.40 (threshold min) → confidence ~75%
+    - similarity = 0.50 → confidence ~85%
+    - similarity = 0.60 → confidence ~92%
+    - similarity = 0.70 → confidence ~96%
+    - similarity = 0.80+ → confidence ~99%
+    
+    Công thức: Sử dụng hàm sigmoid-like để ánh xạ [0.4, 0.8] → [75%, 99%]
+    """
+    if similarity < SIMILARITY_V2_THRESHOLD:
+        # Dưới threshold → không match, trả về confidence thấp
+        return max(0, similarity * 100)
+    
+    # Ánh xạ [0.55, 0.85] → [80, 99] - threshold cao hơn = confidence bắt đầu từ 80%
+    min_sim = 0.55  # Match SIMILARITY_V2_THRESHOLD
+    max_sim = 0.85
+    min_conf = 80.0  # Bắt đầu từ 80% khi vượt threshold
+    max_conf = 99.0
+    
+    # Clamp similarity vào range
+    sim_clamped = max(min_sim, min(max_sim, similarity))
+    
+    # Linear interpolation
+    ratio = (sim_clamped - min_sim) / (max_sim - min_sim)
+    
+    # Áp dụng curve để làm confidence tăng nhanh hơn ở đầu
+    # sqrt curve: confidence tăng nhanh từ 75% lên 90%, chậm dần về 99%
+    ratio_curved = ratio ** 0.6
+    
+    confidence = min_conf + ratio_curved * (max_conf - min_conf)
+    
+    return round(confidence, 1)

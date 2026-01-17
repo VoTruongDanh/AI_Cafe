@@ -2,25 +2,25 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
-    Box,
-    Button,
-    Card,
-    CardContent,
+  Box,
+  Button,
+  Card,
+  CardContent,
   Typography,
   Avatar,
-    Chip,
-    CircularProgress,
+  Chip,
+  CircularProgress,
   Alert,
   Stack,
   Paper,
   Divider,
   Grid,
   LinearProgress,
-    Dialog,
-    DialogTitle,
-    DialogContent,
-    DialogActions,
-    TextField,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TextField,
   InputAdornment,
   FormControlLabel,
   Checkbox,
@@ -58,25 +58,26 @@ import { faceRecognitionV2Api, faceRecognitionApi, adminUsersApi } from '../../s
 import api from '../../services/api';
 import { toast } from 'react-toastify';
 
-const SCAN_INTERVAL = 800; // Quét mỗi 0.8 giây - Tối ưu để detect nhanh hơn
-const MAX_SCANS_BEFORE_NEW_CUSTOMER = 3; // Sau 3 lần quét không tìm thấy -> hiện khách mới
+const SCAN_INTERVAL = 400; // OPTIMIZED: Giảm từ 600ms xuống 400ms để nhận diện nhanh hơn
+const MAX_SCANS_BEFORE_NEW_CUSTOMER = 4;
 
 const FaceRecognitionV2 = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  
+
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [isScanning, setIsScanning] = useState(false);
   const [recognitionResult, setRecognitionResult] = useState(null);
   const [scanCount, setScanCount] = useState(0);
   const [noMatchCount, setNoMatchCount] = useState(0); // Đếm số lần không tìm thấy
   const [isNewCustomer, setIsNewCustomer] = useState(false); // Flag khách hàng mới
+  const [recognitionStatus, setRecognitionStatus] = useState('SCANNING'); // 'SCANNING' | 'SEARCHING' | 'REVIEW_MASK' | 'MATCHED'
   const [capturedImage, setCapturedImage] = useState(null); // Ảnh đã chụp cho khách mới
   const [lastScanTime, setLastScanTime] = useState(null);
   const [error, setError] = useState(null);
   const [processingTime, setProcessingTime] = useState(null); // Thời gian xử lý (ms)
   const [debugInfo, setDebugInfo] = useState(null); // Thông tin debug
-  
+
   // Face detection info
   const [faceBox, setFaceBox] = useState(null); // Bounding box của mặt [x1, y1, x2, y2]
   const [faceQuality, setFaceQuality] = useState(0); // Điểm chất lượng hiện tại
@@ -84,9 +85,10 @@ const FaceRecognitionV2 = () => {
   const [bestFaceQuality, setBestFaceQuality] = useState(0); // Điểm chất lượng cao nhất
   const [faceDetectedCount, setFaceDetectedCount] = useState(0); // Số lần detect được mặt (có mặt trong frame)
   const [noFaceCount, setNoFaceCount] = useState(0); // Số lần không có mặt
-  
+
   // Dialog tạo tài khoản mới
   const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [dialogImage, setDialogImage] = useState(null); // Snapshot ảnh cho dialog (bền vững)
   const [newCustomerData, setNewCustomerData] = useState({
     name: '',
     email: '',
@@ -108,8 +110,8 @@ const FaceRecognitionV2 = () => {
   const [locationInfo, setLocationInfo] = useState(null);
   const [minConfidence, setMinConfidence] = useState(0.6);
 
-    const videoRef = useRef(null);
-    const canvasRef = useRef(null);
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
   const streamRef = useRef(null);
   const scanIntervalRef = useRef(null);
   const isProcessingRef = useRef(false); // Giới hạn chỉ 1 request tại một thời điểm
@@ -126,21 +128,21 @@ const FaceRecognitionV2 = () => {
   const [loadingCameras, setLoadingCameras] = useState(false);
 
   // Lấy danh sách camera khi component mount
-    useEffect(() => {
+  useEffect(() => {
     const getCameras = async () => {
       setLoadingCameras(true);
       try {
         // Cần request permission trước để enumerate devices
         const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
         tempStream.getTracks().forEach(track => track.stop());
-        
+
         const devices = await navigator.mediaDevices.enumerateDevices();
         const videoDevices = devices.filter(device => device.kind === 'videoinput');
         setAvailableCameras(videoDevices);
-        
+
         // Auto-select camera mặt trước (user) nếu có, hoặc camera đầu tiên
-        const frontCamera = videoDevices.find(d => 
-          d.label.toLowerCase().includes('front') || 
+        const frontCamera = videoDevices.find(d =>
+          d.label.toLowerCase().includes('front') ||
           d.label.toLowerCase().includes('user') ||
           d.label.toLowerCase().includes('trước')
         );
@@ -173,13 +175,14 @@ const FaceRecognitionV2 = () => {
     return () => {
       stopScanning();
     };
-    }, []);
+  }, []);
 
   // Bắt đầu camera và quét realtime
   const startScanning = useCallback(async () => {
     try {
       setError(null);
       setRecognitionResult(null);
+      setRecognitionStatus('SCANNING'); // Reset status
       setScanCount(0);
       // Reset TẤT CẢ refs
       isProcessingRef.current = false; // Reset processing flag
@@ -194,20 +197,20 @@ const FaceRecognitionV2 = () => {
       setBestFaceImage(null);
       setBestFaceQuality(0);
       setCroppedFaceFromScan(null); // Clear ảnh so sánh
-      
+
       // Cấu hình video constraints
       const videoConstraints = {
         width: { ideal: 640 },
         height: { ideal: 480 }
       };
-      
+
       // Sử dụng camera đã chọn nếu có
       if (selectedCameraId) {
         videoConstraints.deviceId = { exact: selectedCameraId };
       } else {
         videoConstraints.facingMode = 'user';
       }
-      
+
       const stream = await navigator.mediaDevices.getUserMedia({
         video: videoConstraints
       });
@@ -221,10 +224,10 @@ const FaceRecognitionV2 = () => {
 
   // ✅ Tự động bật camera khi vào tab (chỉ chạy 1 lần khi mount và điều kiện đủ)
   const hasAutoStartedRef = useRef(false);
-    useEffect(() => {
+  useEffect(() => {
     // Chỉ tự động bật một lần khi mount
     if (hasAutoStartedRef.current) return;
-    
+
     // Đợi cameras được load xong và AI service sẵn sàng
     if (!loadingCameras && statusData?.ai_service === 'online' && !isCameraOpen && availableCameras.length > 0) {
       // Delay nhỏ để đảm bảo component đã render xong
@@ -233,7 +236,7 @@ const FaceRecognitionV2 = () => {
         hasAutoStartedRef.current = true;
         startScanning();
       }, 500);
-      
+
       return () => clearTimeout(autoStartTimer);
     }
   }, [loadingCameras, statusData?.ai_service, isCameraOpen, availableCameras.length, startScanning]);
@@ -243,13 +246,13 @@ const FaceRecognitionV2 = () => {
     if (isCameraOpen && streamRef.current && videoRef.current) {
       videoRef.current.srcObject = streamRef.current;
       videoRef.current.play().catch(e => console.log('Video play error:', e));
-      
+
       // Bắt đầu quét sau 1 giây (đợi video ổn định)
       const startDelay = setTimeout(() => {
         setIsScanning(true);
         startRealtimeScan();
       }, 1000);
-      
+
       return () => clearTimeout(startDelay);
     }
   }, [isCameraOpen]);
@@ -270,10 +273,45 @@ const FaceRecognitionV2 = () => {
     }, SCAN_INTERVAL);
   }, []);
 
+  // Helper: Client-side crop fallback (Fix lỗi backend không trả về ảnh)
+  const cropFaceFromCanvas = (box) => {
+    if (!box || !canvasRef.current) return null;
+    try {
+      const [x1, y1, x2, y2] = box;
+      const canvas = canvasRef.current;
+      const ctx = canvas.getContext('2d');
+
+      // Add margin
+      const w = x2 - x1;
+      const h = y2 - y1;
+      const margin = Math.min(w, h) * 0.2; // 20% margin
+
+      // Safe bounds
+      const cw = canvas.width;
+      const ch = canvas.height;
+      const sx = Math.max(0, x1 - margin);
+      const sy = Math.max(0, y1 - margin);
+      const sw = Math.min(cw - sx, w + margin * 2);
+      const sh = Math.min(ch - sy, h + margin * 2);
+
+      if (sw <= 0 || sh <= 0) return null;
+
+      const faceData = ctx.getImageData(sx, sy, sw, sh);
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = sw;
+      tempCanvas.height = sh;
+      tempCanvas.getContext('2d').putImageData(faceData, 0, 0);
+      return tempCanvas.toDataURL('image/jpeg', 0.85);
+    } catch (e) {
+      console.error("Client crop error:", e);
+      return null;
+    }
+  };
+
   // Thực hiện 1 lần quét
   const performScan = async () => {
     if (!videoRef.current || !canvasRef.current) return;
-    
+
     // Giới hạn chỉ 1 request tại một thời điểm để tránh overload backend
     if (isProcessingRef.current) {
       console.log('[SCAN] Đang xử lý request trước đó, bỏ qua frame này');
@@ -282,56 +320,67 @@ const FaceRecognitionV2 = () => {
 
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    
+
     // Chụp frame từ video với quality cao hơn
     const videoWidth = video.videoWidth || 640;
     const videoHeight = video.videoHeight || 480;
     // Giới hạn kích thước gửi để giảm dung lượng (max width 640, giữ tỉ lệ) - Tối ưu cho CPU
-    const maxWidth = 640;
+    // OPTIMIZED: Giới hạn 256px (match det_size=256 của backend) để tối ưu tốc độ
+    const maxWidth = 256;
     const scale = videoWidth > maxWidth ? maxWidth / videoWidth : 1;
     const targetWidth = Math.floor(videoWidth * scale);
     const targetHeight = Math.floor(videoHeight * scale);
     canvas.width = targetWidth;
     canvas.height = targetHeight;
     const ctx = canvas.getContext('2d');
-    
+
     // Mirror ảnh vì video đã được mirror trong CSS
     ctx.translate(targetWidth, 0);
     ctx.scale(-1, 1);
     ctx.drawImage(video, 0, 0, targetWidth, targetHeight);
-    
+
     // Reset transform
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    
-    const imageData = canvas.toDataURL('image/jpeg', 0.75); // Giảm quality để tăng tốc xử lý
+
+    const imageData = canvas.toDataURL('image/jpeg', 0.85); // Tăng quality bù cho resolution thấp
     console.log(`[SCAN] Canvas: ${targetWidth}x${targetHeight}, Data length: ${imageData.length}`);
 
     setScanCount(prev => prev + 1);
     setLastScanTime(new Date());
 
     const startTime = Date.now();
-    
+
     // Đánh dấu đang xử lý
     isProcessingRef.current = true;
-    
+
     // Clear timeout cũ nếu có
     if (processingTimeoutRef.current) {
       clearTimeout(processingTimeoutRef.current);
     }
-    
-    // Timeout 8s để reset flag nếu request quá lâu (safety net)
+
+    // Timeout 60s để reset flag nếu request quá lâu (safety net cho CPU mode)
     processingTimeoutRef.current = setTimeout(() => {
       console.warn('[SCAN] Request timeout - resetting processing flag');
       isProcessingRef.current = false;
       processingTimeoutRef.current = null;
-    }, 8000);
+    }, 60000);
 
     try {
       const response = await faceRecognitionV2Api.recognize(imageData);
       const result = response.data;
-      
-      console.log('[API Response]', result); // Debug log
-      
+
+      // FALLBACK: Auto-crop từ client nếu backend quên trả về ảnh (Fix lỗi mất avatar)
+      if (!result.cropped_face && result.face_box && result.face_detected) {
+        result.cropped_face = cropFaceFromCanvas(result.face_box);
+        console.log('[CLIENT FIX] Auto-cropped face locally:', result.cropped_face ? 'Success' : 'Failed');
+      }
+
+      console.log('[API Response]', result);
+
+      if (!result.success) {
+        console.error('[API ERROR MESSAGE]', result.message);
+      } // Debug log
+
       // Cập nhật thông tin debug
       const clientTime = Date.now() - startTime;
       setProcessingTime(result.processing_time_ms || clientTime);
@@ -347,7 +396,7 @@ const FaceRecognitionV2 = () => {
         success: result.success,
         matched: result.matched,
       });
-      
+
       // === KIỂM TRA CÓ DETECT ĐƯỢC MẶT KHÔNG ===
       if (!result.face_detected) {
         // KHÔNG có mặt trong frame HOẶC chất lượng quá thấp - không so sánh, không đếm "khách mới"
@@ -355,17 +404,18 @@ const FaceRecognitionV2 = () => {
         setFaceBox(result.face_box || null); // Vẫn hiển thị box nếu có (để user biết vị trí)
         setFaceQuality(result.face_quality || 0);
         setNoFaceCount(prev => prev + 1);
-        // QUAN TRỌNG: Không tăng noMatchCount vì chưa có mặt chính xác để so sánh
-        // Chỉ reset noMatchCount khi có mặt thật
+        // QUAN TRỌNG: Reset isNewCustomer khi không có mặt - tránh hiển thị form tạo tài khoản
+        setIsNewCustomer(false);
+        // Không tăng noMatchCount vì chưa có mặt chính xác để so sánh
         return;
       }
-      
+
       // === CÓ MẶT - Cập nhật face box ===
       setNoFaceCount(0); // Reset đếm không có mặt
       setFaceBox(result.face_box);
       setFaceQuality(result.face_quality || 0);
       setFaceDetectedCount(prev => prev + 1);
-      
+
       // Lưu ảnh mặt tốt nhất (có quality cao nhất) - dùng ref để tránh stale closure
       const currentQuality = result.face_quality || 0;
       if (currentQuality > bestFaceQualityRef.current && result.cropped_face) {
@@ -377,89 +427,110 @@ const FaceRecognitionV2 = () => {
       }
 
       if (result.matched) {
+        // === 10-LAYER LOGIC: MATCHED ===
+        const similarity = result.similarity || result.cosine_similarity || 0;
+        // Fallback name: nếu API trả về tên null/unknown nhưng có ID → hiển thị tạm ID
+        const rawName = result.best_customer_name || result.customer_name;
+        const bestName = (rawName && rawName !== 'Unknown') ? rawName : (result.customer_id ? `Guest #${result.customer_id}` : 'Unknown');
         const customerId = result.customer_id;
-        const needsConfirmation = result.needs_confirmation;
 
-        // Temporal voting: yêu cầu tối thiểu 3 lần liên tiếp cùng 1 customer trước khi chốt
-        if (lastMatchIdRef.current === customerId) {
-          matchStreakRef.current += 1;
-        } else {
-          lastMatchIdRef.current = customerId;
-          matchStreakRef.current = 1;
-        }
+        console.log('[DEBUG MATCH LOGIC]', {
+          matched: result.matched,
+          raw_similarity: result.similarity,
+          raw_cosine_sim: result.cosine_similarity,
+          final_similarity: similarity,
+          name: bestName,
+          id: customerId,
+          threshold: 0.55,
+          // DEBUG: Kiểm tra confidence từ API
+          api_confidence: result.confidence,
+          api_confidence_display: result.confidence_display,
+          similarity_percent: result.similarity_percent
+        });
 
-        const streak = matchStreakRef.current;
-        console.log(`[MATCH] Customer: ${result.customer?.name || customerId}, streak=${streak}, needs_confirmation=${needsConfirmation}`);
-
-        // Điều kiện chốt: đủ 3 lần liên tiếp
-        if (streak >= 3) {
+        // Helper function for confirming match
+        const confirmMatch = () => {
           setRecognitionResult(result);
-          // Lưu ảnh mặt đã crop để NV có thể update avatar thủ công
+          setRecognitionStatus('MATCHED');
           setCroppedFaceFromScan(result.cropped_face || bestFaceImageRef.current);
           setIsScanning(false);
-          noMatchCountRef.current = 0; // Reset ref
+          noMatchCountRef.current = 0;
           setNoMatchCount(0);
           setIsNewCustomer(false);
           if (scanIntervalRef.current) {
             clearInterval(scanIntervalRef.current);
             scanIntervalRef.current = null;
           }
+        };
+        // === CÂN BẰNG TỐC ĐỘ + AN TOÀN ===
+        const threshold = result.similarity_threshold || 0.55;
+        const instantThreshold = 0.60; // >= 0.60: INSTANT (rất chắc chắn)
+
+        // [LAYER 1] INSTANT MATCH: >= 0.60 → confirm ngay (1 scan, ~0.9s)
+        if (similarity >= instantThreshold) {
+          console.log(`[INSTANT] Score ${similarity} >= 0.60. Confirmed: ${bestName}`);
+          confirmMatch();
+          matchStreakRef.current = 0;
+        }
+        // [LAYER 2] VOTING: 0.55-0.60 → cần 2 scans cùng customer_id
+        else if (similarity >= threshold) {
+          if (lastMatchIdRef.current === customerId) {
+            matchStreakRef.current += 1;
+          } else {
+            lastMatchIdRef.current = customerId;
+            matchStreakRef.current = 1;
+          }
+          console.log(`[VOTING] ${bestName}, Streak: ${matchStreakRef.current}/2 (score: ${similarity})`);
+
+          if (matchStreakRef.current >= 2) {
+            confirmMatch();
+          } else {
+            setRecognitionResult(null); // Tiếp tục scan
+          }
         } else {
-          // Chưa đủ phiếu, tiếp tục quét
+          // Score < 0.55: không match, tiếp tục scan
+          console.log(`[NO MATCH] Score ${similarity} < ${threshold}`);
           setRecognitionResult(null);
         }
       } else {
-        // CÓ MẶT nhưng KHÔNG MATCH với ai - đây mới là "potential new customer"
-        const effectiveQuality = Math.max(currentQuality, bestFaceQualityRef.current);
-        const canCreateNew = result.face_detected && effectiveQuality >= 45;
-        
-        // Xử lý trường hợp DB trống: hiện khách mới ngay sau 1 lần quét (không cần đợi 3 lần)
-        if (result.no_customers_in_db && canCreateNew) {
-          console.log(`[NEW CUSTOMER] DB empty, showing new customer immediately, quality: ${effectiveQuality.toFixed(1)}%`);
-          setIsNewCustomer(true);
-          setCapturedImage(bestFaceImageRef.current || result.cropped_face);
-          setIsScanning(false);
-          noMatchCountRef.current = MAX_SCANS_BEFORE_NEW_CUSTOMER; // Set để UI hiển thị đúng
-          setNoMatchCount(MAX_SCANS_BEFORE_NEW_CUSTOMER);
-          if (scanIntervalRef.current) {
-            clearInterval(scanIntervalRef.current);
-            scanIntervalRef.current = null;
-          }
-          setRecognitionResult(null);
-          return;
-        }
-        
-        // Dùng ref để track đúng count (tránh stale closure)
-        noMatchCountRef.current += 1;
-        const newNoMatchCount = noMatchCountRef.current;
-        setNoMatchCount(newNoMatchCount); // Cập nhật state để UI hiển thị
-        
-        const bestSim = result.best_similarity || result.bestSimilarity || 0;
-        const threshold = result.similarity_threshold || result.similarityThreshold || 0;
-        const bestName = result.best_customer_name || result.bestCustomerName || 'N/A';
-        console.log(`[NO MATCH] Scan #${scanCount + 1}, NoMatch: ${newNoMatchCount}/${MAX_SCANS_BEFORE_NEW_CUSTOMER}, Quality: ${currentQuality.toFixed(1)}%, Best: ${effectiveQuality.toFixed(1)}%`);
-        console.log(`[NO MATCH] Best similarity: ${(bestSim * 100).toFixed(1)}% (threshold: ${(threshold * 100).toFixed(1)}%), Best customer: ${bestName}`);
-        
-        // Sau MAX_SCANS_BEFORE_NEW_CUSTOMER lần có mặt nhưng không match -> hiện khách mới (chỉ khi có mặt hợp lệ)
-        if (canCreateNew && newNoMatchCount >= MAX_SCANS_BEFORE_NEW_CUSTOMER) {
-          console.log(`[NEW CUSTOMER] Triggered after ${newNoMatchCount} scans, quality: ${effectiveQuality.toFixed(1)}%`);
-          setIsNewCustomer(true);
-          // Sử dụng ảnh mặt đã crop tốt nhất từ ref
-          setCapturedImage(bestFaceImageRef.current || result.cropped_face);
-          setIsScanning(false);
-          if (scanIntervalRef.current) {
-            clearInterval(scanIntervalRef.current);
-            scanIntervalRef.current = null;
-          }
-        } else if (!canCreateNew) {
-          // Không đủ điều kiện mặt hợp lệ -> không cho tạo mới
-          setIsNewCustomer(false);
-          setCapturedImage(null);
-        }
-        setRecognitionResult(null);
-        // Reset vote streak vì chưa match
+        // [LAYER 4] Searching / New Customer (NOT MATCHED)
         matchStreakRef.current = 0;
         lastMatchIdRef.current = null;
+
+        // Update no match count
+        noMatchCountRef.current += 1;
+        setNoMatchCount(noMatchCountRef.current);
+
+        const effectiveQuality = Math.max(currentQuality, bestFaceQualityRef.current);
+        const canCreateNew = result.face_detected && effectiveQuality >= 45;
+
+        const bestSim = result.best_similarity || result.bestSimilarity || 0;
+        const bestN = result.best_customer_name || result.bestCustomerName || 'N/A';
+        console.log(`[NO MATCH] Count: ${noMatchCountRef.current}, BestSim: ${bestSim}, BestName: ${bestN}`);
+
+        // DB Empty OR Max Retry Reached -> SEARCHING
+        // DB Empty OR Max Retry Reached -> SEARCHING
+        if ((result.no_customers_in_db || noMatchCountRef.current >= MAX_SCANS_BEFORE_NEW_CUSTOMER) && canCreateNew) {
+          setRecognitionStatus('SEARCHING');
+          setIsNewCustomer(true);
+
+          // Fix: Cập nhật capturedImage nếu có ảnh tốt, tránh set null
+          const newImg = bestFaceImageRef.current || result.cropped_face;
+          if (newImg) {
+            setCapturedImage(newImg);
+          }
+
+          // ALWAYS STOP SCANNING like V1 when showing New Customer UI
+          // Điều này giúp giữ yên ảnh capturedImage và tránh UI bị flicker/reset
+          console.log('[NEW CUSTOMER] Stopping scan to show creation UI');
+          setIsScanning(false);
+          if (scanIntervalRef.current) {
+            clearInterval(scanIntervalRef.current);
+            scanIntervalRef.current = null;
+          }
+        }
+
+        setRecognitionResult(null);
       }
     } catch (err) {
       console.error('Scan error:', err);
@@ -469,7 +540,7 @@ const FaceRecognitionV2 = () => {
     } finally {
       // Luôn reset processing flag để cho phép request tiếp theo
       isProcessingRef.current = false;
-      
+
       // Clear timeout nếu request đã hoàn thành
       if (processingTimeoutRef.current) {
         clearTimeout(processingTimeoutRef.current);
@@ -499,21 +570,21 @@ const FaceRecognitionV2 = () => {
   // Reset và quét lại
   const resetAndScan = useCallback(() => {
     console.log('[RESET] Clearing all face data and restarting scan...');
-    
+
     // Dừng scan hiện tại trước
     if (scanIntervalRef.current) {
       clearInterval(scanIntervalRef.current);
       scanIntervalRef.current = null;
     }
-    
+
     // Reset TẤT CẢ refs TRƯỚC
     isProcessingRef.current = false; // Reset processing flag
     noMatchCountRef.current = 0;
     bestFaceImageRef.current = null;
     bestFaceQualityRef.current = 0;
-      matchStreakRef.current = 0;
-      lastMatchIdRef.current = null;
-    
+    matchStreakRef.current = 0;
+    lastMatchIdRef.current = null;
+
     // Clear TẤT CẢ dữ liệu cũ (state)
     setRecognitionResult(null);
     setScanCount(0);
@@ -530,7 +601,7 @@ const FaceRecognitionV2 = () => {
     setProcessingTime(0);
     setError(null);
     setCroppedFaceFromScan(null); // Clear ảnh so sánh
-    
+
     // Đợi state clear xong rồi mới bắt đầu scan mới
     setTimeout(() => {
       setIsScanning(true);
@@ -540,8 +611,18 @@ const FaceRecognitionV2 = () => {
 
   // Mở dialog tạo tài khoản
   const handleOpenCreateDialog = () => {
+    console.log('[Dialog] Opening with capturedImage:', capturedImage ? 'Has Value' : 'NULL');
+    setDialogImage(capturedImage); // Snapshot ảnh
     setError(null);
     setShowCreateDialog(true);
+
+    // QT: Dừng scan để giữ state ảnh, tránh bị overwrite bởi background scan
+    setIsScanning(false);
+    if (scanIntervalRef.current) {
+      clearInterval(scanIntervalRef.current);
+      scanIntervalRef.current = null;
+    }
+
     setNewCustomerData({
       name: '',
       email: '',
@@ -551,11 +632,11 @@ const FaceRecognitionV2 = () => {
   };
 
   // Tạo tài khoản mới với ảnh đã chụp
-    const handleCreateCustomer = async () => {
+  const handleCreateCustomer = async () => {
     if (!newCustomerData.name || !newCustomerData.email) {
       setError('Vui lòng nhập tên và email');
-            return;
-        }
+      return;
+    }
 
     setIsCreating(true);
     try {
@@ -565,34 +646,78 @@ const FaceRecognitionV2 = () => {
         email: newCustomerData.email,
         phone: newCustomerData.phone,
         password: newCustomerData.password,
-                role: 'customer',
+        role: 'customer',
       });
 
       const newUser = createResponse.data?.data || createResponse.data;
 
-      // 2. Upload avatar nếu có ảnh đã chụp
+      // 2. Upload avatar nếu có ảnh đã chụp (dùng FormData để gửi file)
+      // 2. Upload avatar nếu có ảnh đã chụp (dùng cách V1 JSON base64)
       if (capturedImage && newUser?.id) {
-        await adminUsersApi.uploadAvatar(newUser.id, { avatar_base64: capturedImage });
+        try {
+          // Cách V1: Gửi base64 string trực tiếp
+          await adminUsersApi.uploadAvatar(newUser.id, { avatar_base64: capturedImage });
+          console.log('[Create] Upload avatar thành công');
+        } catch (uploadErr) {
+          console.error('[Create] Lỗi upload avatar:', uploadErr.response?.status, uploadErr.response?.data);
+          // Fallback: Nếu JSON fail, thử FormData (phòng khi backend đổi)
+          try {
+            const res = await fetch(capturedImage);
+            const blob = await res.blob();
+            const file = new File([blob], 'avatar.jpg', { type: 'image/jpeg' });
+            const fd = new FormData();
+            fd.append('avatar', file);
+            await adminUsersApi.uploadAvatar(newUser.id, fd);
+            console.log('[Create] Retry với FormData thành công');
+          } catch (e) {
+            console.error('[Create] Retry fail:', e);
+          }
+        }
       }
 
-      // Thành công
+
+      // 3. Cập nhật Cache V2 ngay lập tức để nhận diện được user mới
+      // 3. Cập nhật Cache V2 (Safe Mode - không làm lỗi UI nếu backend chưa restart)
+      try {
+        const usersRes = await adminUsersApi.getAll({ per_page: 1000 });
+        const allUsers = usersRes.data?.data?.data || usersRes.data?.data || [];
+
+        if (allUsers.length > 0) {
+          const cachePayload = allUsers.map(user => ({
+            id: user.id,
+            name: user.name,
+            avatar_path: user.avatar
+          }));
+          // Background update (không chặn UI)
+          faceRecognitionV2Api.cacheCustomers({ customers: cachePayload })
+            .then(() => console.log('[Create] Cache V2 updated'))
+            .catch(e => console.warn('[Create] Cache V2 update failed (Backend need restart?):', e));
+        }
+      } catch (cacheErr) {
+        console.warn('[Create] Ignored cache setup error:', cacheErr);
+      }
+
+      // THÀNH CÔNG
+      toast.success('Tạo tài khoản thành công!');
       setShowCreateDialog(false);
       setRecognitionResult({
         matched: true,
         confidence: 100,
         customer: {
           ...newUser,
+          avatar: capturedImage, // Hiển thị ngay ảnh vừa chụp
           loyalty_tier: 'bronze',
           loyalty_points: 0,
         },
         isNewlyCreated: true,
       });
       setIsNewCustomer(false);
-      
+
       // Invalidate cache
       queryClient.invalidateQueries(['admin-users']);
-      
-        } catch (err) {
+      return; // Thoát hàm, không để rơi xuống catch dưới
+
+    } catch (err) {
       console.error('Error creating customer:', err);
       setError(err.response?.data?.message || 'Không thể tạo tài khoản. Vui lòng thử lại.');
     } finally {
@@ -606,7 +731,7 @@ const FaceRecognitionV2 = () => {
     noMatchCountRef.current = 0;
     bestFaceImageRef.current = null;
     bestFaceQualityRef.current = 0;
-    
+
     // Reset các state liên quan đến face capture
     setIsNewCustomer(false);
     setCapturedImage(null);
@@ -667,7 +792,7 @@ const FaceRecognitionV2 = () => {
     if (!path) return null;
     if (path.startsWith('http')) return path;
     if (path.startsWith('data:')) return path;
-    const backendUrl = import.meta.env.DEV 
+    const backendUrl = import.meta.env.DEV
       ? 'http://127.0.0.1:8000'
       : (import.meta.env.VITE_API_URL?.replace('/api', '') || '');
     return `${backendUrl}${path.startsWith('/') ? '' : '/'}${path}`;
@@ -780,9 +905,9 @@ const FaceRecognitionV2 = () => {
     return () => clearTimeout(timer);
   }, [temperature, minConfidence, locationLoading, fetchSuggestions]);
 
-  const isAIReady = statusData?.ai_service === 'online' && (statusData?.facenet_ready || statusData?.deepface_ready);
+  const isAIReady = statusData?.ai_service === 'online' && statusData?.model_loaded;
 
-    return (
+  return (
     <AdminPageLayout
       title="Nhận diện khách hàng"
       subtitle="Tự động nhận diện khách hàng realtime từ camera"
@@ -797,12 +922,11 @@ const FaceRecognitionV2 = () => {
         <Alert severity="warning" sx={{ mb: 3 }}>
           <strong>AI Service chưa sẵn sàng!</strong>
           <br />
-          {!(statusData?.facenet_ready || statusData?.deepface_ready) && (
+          {!statusData?.model_loaded && (
             <>
-              Face Recognition chưa được cài đặt. Vui lòng chạy:
+              Face Recognition V2 chưa load. Kiểm tra terminal:
               <code style={{ display: 'block', marginTop: 8, padding: 8, background: '#f5f5f5', borderRadius: 4 }}>
-                cd Backend/ai-temp-local<br />
-                pip install facenet-pytorch torch torchvision opencv-python
+                python api.py
               </code>
             </>
           )}
@@ -832,10 +956,10 @@ const FaceRecognitionV2 = () => {
                   <CameraIcon /> Camera
                 </Typography>
                 {isScanning && (
-                  <Chip 
-                    icon={<SearchIcon />} 
-                    label="Đang quét..." 
-                    color="primary" 
+                  <Chip
+                    icon={<SearchIcon />}
+                    label="Đang quét..."
+                    color="primary"
                     size="small"
                     sx={{ animation: 'pulse 1.5s infinite' }}
                   />
@@ -852,20 +976,20 @@ const FaceRecognitionV2 = () => {
                   </Typography>
                 </Box>
               )}
-              
+
               {/* Debug info - hiển thị face detection status */}
               {isScanning && (
                 <Box sx={{ mb: 1 }}>
                   <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 1 }}>
                     {faceBox ? (
-                      <Chip 
+                      <Chip
                         size="small"
                         icon={<SuccessIcon sx={{ fontSize: 16 }} />}
                         label={`Mặt: ${faceQuality.toFixed(0)}%`}
                         color={faceQuality > 50 ? 'success' : faceQuality > 30 ? 'warning' : 'default'}
                       />
                     ) : (
-                      <Chip 
+                      <Chip
                         size="small"
                         icon={<FailIcon sx={{ fontSize: 16 }} />}
                         label="Không thấy mặt"
@@ -874,7 +998,7 @@ const FaceRecognitionV2 = () => {
                       />
                     )}
                     {bestFaceQuality > 0 && (
-                      <Chip 
+                      <Chip
                         size="small"
                         label={`Tốt nhất: ${bestFaceQuality.toFixed(0)}%`}
                         color="primary"
@@ -882,7 +1006,7 @@ const FaceRecognitionV2 = () => {
                       />
                     )}
                     {noMatchCount > 0 && (
-                      <Chip 
+                      <Chip
                         size="small"
                         label={`Đã quét: ${noMatchCount}/${MAX_SCANS_BEFORE_NEW_CUSTOMER}`}
                         variant="outlined"
@@ -930,45 +1054,53 @@ const FaceRecognitionV2 = () => {
                 {isCameraOpen && (
                   <>
                     <video
-                        ref={videoRef}
+                      ref={videoRef}
                       autoPlay
                       playsInline
                       muted
-                        style={{
-                            width: '100%',
-                            height: '100%',
-                            objectFit: 'cover',
+                      style={{
+                        width: '100%',
+                        height: '100%',
+                        objectFit: 'cover',
                         transform: 'scaleX(-1)',
                       }}
                     />
-                    
-                    
-                    {/* Status indicator */}
+
+
+                    {/* Status indicator - 10 Layer UI */}
                     <Box
                       sx={{
                         position: 'absolute',
-                        bottom: 10,
+                        bottom: 20,
                         left: '50%',
                         transform: 'translateX(-50%)',
-                        bgcolor: isScanning ? 'success.main' : 'grey.700',
-                        color: 'white',
-                        px: 2,
-                        py: 0.5,
-                        borderRadius: 2,
+                        bgcolor:
+                          recognitionStatus === 'MATCHED' ? 'success.main' :
+                            recognitionStatus === 'SEARCHING' ? '#ed6c02' :
+                              recognitionStatus === 'REVIEW_MASK' ? '#ffeb3b' :
+                                isScanning ? '#1976d2' : 'grey.700',
+                        color: recognitionStatus === 'REVIEW_MASK' ? 'black' : 'white',
+                        px: 3,
+                        py: 1,
+                        borderRadius: 10,
                         display: 'flex',
                         alignItems: 'center',
-                        gap: 1,
+                        gap: 1.5,
+                        boxShadow: 6,
+                        transition: 'all 0.3s ease',
+                        border: recognitionStatus === 'SEARCHING' ? '2px solid rgba(255,255,255,0.3)' : 'none'
                       }}
                     >
-                      {isScanning ? (
-                        <>
-                          <CircularProgress size={14} color="inherit" />
-                          <Typography variant="body2">Đang tìm kiếm...</Typography>
-                        </>
-                      ) : (
-                        <Typography variant="body2">Đã dừng</Typography>
-                      )}
-                        </Box>
+                      {recognitionStatus === 'SCANNING' && isScanning && <CircularProgress size={16} color="inherit" />}
+
+                      <Typography variant="subtitle2" fontWeight="bold" sx={{ letterSpacing: 1 }}>
+                        {recognitionStatus === 'MATCHED' && "✅ XIN CHÀO KHÁCH HÀNG"}
+                        {recognitionStatus === 'SEARCHING' && "🔍 ĐANG TÌM KIẾM..."}
+                        {recognitionStatus === 'REVIEW_MASK' && "⚠️ REVIEW MASK"}
+                        {recognitionStatus === 'SCANNING' && isScanning && "ĐANG QUÉT..."}
+                        {!isScanning && recognitionStatus !== 'MATCHED' && "⏹️ ĐÃ DỪNG"}
+                      </Typography>
+                    </Box>
                   </>
                 )}
 
@@ -983,7 +1115,7 @@ const FaceRecognitionV2 = () => {
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                         <VideocamIcon fontSize="small" />
                         Chọn Camera
-                    </Box>
+                      </Box>
                     </InputLabel>
                     <Select
                       labelId="camera-select-label"
@@ -1029,7 +1161,7 @@ const FaceRecognitionV2 = () => {
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                             <VideocamIcon fontSize="small" color="action" />
                             {camera.label || `Camera ${index + 1}`}
-                </Box>
+                          </Box>
                         </MenuItem>
                       ))}
                     </Select>
@@ -1067,7 +1199,7 @@ const FaceRecognitionV2 = () => {
                     >
                       Dừng quét
                     </Button>
-                    
+
                     {/* Quick switch camera button - hiển thị khi có >= 2 camera */}
                     {availableCameras.length >= 2 && (
                       <IconButton
@@ -1076,11 +1208,11 @@ const FaceRecognitionV2 = () => {
                           const currentIndex = availableCameras.findIndex(c => c.deviceId === selectedCameraId);
                           const nextIndex = (currentIndex + 1) % availableCameras.length;
                           const nextCamera = availableCameras[nextIndex];
-                          
+
                           // Trigger change
                           const event = { target: { value: nextCamera.deviceId } };
                           setSelectedCameraId(nextCamera.deviceId);
-                          
+
                           // Dừng stream hiện tại và chuyển sang camera mới
                           if (streamRef.current) {
                             streamRef.current.getTracks().forEach(track => track.stop());
@@ -1090,7 +1222,7 @@ const FaceRecognitionV2 = () => {
                           }
                           setIsCameraOpen(false);
                           setIsScanning(false);
-                          
+
                           setTimeout(async () => {
                             try {
                               const stream = await navigator.mediaDevices.getUserMedia({
@@ -1138,7 +1270,7 @@ const FaceRecognitionV2 = () => {
             <CardContent>
               <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
                 <PersonIcon /> Kết quả nhận diện
-                            </Typography>
+              </Typography>
 
               {/* Fallback khi camera mở nhưng không quét và không có kết quả */}
               {!recognitionResult && !isNewCustomer && !isScanning && isCameraOpen && (
@@ -1153,7 +1285,7 @@ const FaceRecognitionV2 = () => {
                 >
                   <Typography variant="h6" sx={{ mb: 1 }}>
                     Camera đang mở
-                            </Typography>
+                  </Typography>
                   <Typography color="text.secondary">
                     Nhấn "Tiếp tục quét" để tiếp tục nhận diện hoặc đổi camera nếu cần.
                   </Typography>
@@ -1204,8 +1336,8 @@ const FaceRecognitionV2 = () => {
               {/* Khách hàng mới - Không tìm thấy trong hệ thống */}
               {isNewCustomer && !recognitionResult && (
                 <Box>
-                  <Alert 
-                    severity="info" 
+                  <Alert
+                    severity="info"
                     icon={<PersonAddIcon />}
                     sx={{ mb: 2 }}
                   >
@@ -1219,14 +1351,19 @@ const FaceRecognitionV2 = () => {
                     {capturedImage && (
                       <Box sx={{ mb: 2 }}>
                         <Box sx={{ position: 'relative', display: 'inline-block' }}>
-                          <Avatar
+                          <Box
+                            component="img"
                             src={capturedImage}
-                            sx={{ 
-                              width: 140, 
-                              height: 140, 
+                            alt="Captured Face"
+                            sx={{
+                              width: 140,
+                              height: 140,
                               mx: 'auto',
+                              borderRadius: '50%',
+                              objectFit: 'cover',
                               border: '4px solid',
-                              borderColor: bestFaceQuality > 50 ? 'success.main' : 'warning.main'
+                              borderColor: bestFaceQuality > 50 ? 'success.main' : 'warning.main',
+                              display: 'block'
                             }}
                           />
                           <Chip
@@ -1261,7 +1398,7 @@ const FaceRecognitionV2 = () => {
                       >
                         Tạo tài khoản mới
                       </Button>
-                      
+
                       <Button
                         variant="outlined"
                         startIcon={<PhotoCameraIcon />}
@@ -1269,7 +1406,7 @@ const FaceRecognitionV2 = () => {
                       >
                         Chụp lại (lấy ảnh rõ hơn)
                       </Button>
-                      
+
                       <Button
                         variant="text"
                         color="inherit"
@@ -1284,8 +1421,8 @@ const FaceRecognitionV2 = () => {
 
               {recognitionResult?.matched && (
                 <Box>
-                  <Alert 
-                    severity="success" 
+                  <Alert
+                    severity="success"
                     icon={<SuccessIcon />}
                     sx={{ mb: 2 }}
                   >
@@ -1299,7 +1436,7 @@ const FaceRecognitionV2 = () => {
                       <>
                         <strong>🎉 Đã tìm thấy khách hàng!</strong>
                         <br />
-                        Độ tin cậy: {recognitionResult.confidence}%
+                        Độ tin cậy: {Math.min(99, Math.max(80, 80 + ((recognitionResult.similarity || 0.55) - 0.55) * 63.33)).toFixed(1)}%
                       </>
                     )}
                   </Alert>
@@ -1313,11 +1450,11 @@ const FaceRecognitionV2 = () => {
                         </Typography>
                         <Box sx={{ display: 'flex', justifyContent: 'center', gap: 3, mb: 2 }}>
                           <Box sx={{ textAlign: 'center' }}>
-                                    <Avatar
+                            <Avatar
                               src={getStaticFileUrl(recognitionResult.customer?.avatar)}
-                              sx={{ 
-                                width: 100, 
-                                height: 100, 
+                              sx={{
+                                width: 100,
+                                height: 100,
                                 border: '3px solid',
                                 borderColor: 'grey.400',
                                 mb: 1
@@ -1333,9 +1470,9 @@ const FaceRecognitionV2 = () => {
                           <Box sx={{ textAlign: 'center' }}>
                             <Avatar
                               src={croppedFaceFromScan}
-                              sx={{ 
-                                width: 100, 
-                                height: 100, 
+                              sx={{
+                                width: 100,
+                                height: 100,
                                 border: '3px solid',
                                 borderColor: 'success.main',
                                 mb: 1
@@ -1346,21 +1483,21 @@ const FaceRecognitionV2 = () => {
                             </Typography>
                           </Box>
                         </Box>
-                                    <Button
-                                        variant="contained"
+                        <Button
+                          variant="contained"
                           color="success"
-                                        fullWidth
+                          fullWidth
                           startIcon={isUpdatingAvatar ? <CircularProgress size={16} color="inherit" /> : <PhotoCameraIcon />}
                           onClick={handleUpdateAvatar}
                           disabled={isUpdatingAvatar}
-                                    >
+                        >
                           {isUpdatingAvatar ? 'Đang cập nhật...' : 'Cập nhật ảnh đại diện'}
-                                    </Button>
+                        </Button>
                       </Box>
-                            )}
+                    )}
 
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
-                                    <Avatar
+                      <Avatar
                         src={getStaticFileUrl(recognitionResult.customer?.avatar)}
                         sx={{ width: 80, height: 80, bgcolor: ADMIN_COLORS.primary }}
                       >
@@ -1375,12 +1512,12 @@ const FaceRecognitionV2 = () => {
                           size="small"
                           color={
                             recognitionResult.customer?.loyalty_tier === 'gold' ? 'warning' :
-                            recognitionResult.customer?.loyalty_tier === 'silver' ? 'default' : 'primary'
+                              recognitionResult.customer?.loyalty_tier === 'silver' ? 'default' : 'primary'
                           }
                           icon={<StarIcon />}
                         />
-                                        </Box>
-                                        </Box>
+                      </Box>
+                    </Box>
 
                     <Divider sx={{ my: 2 }} />
 
@@ -1390,7 +1527,7 @@ const FaceRecognitionV2 = () => {
                         <Typography variant="body1">
                           {recognitionResult.customer?.email || 'Chưa cập nhật'}
                         </Typography>
-                                        </Box>
+                      </Box>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <PhoneIcon fontSize="small" color="action" />
                         <Typography variant="body1">
@@ -1404,8 +1541,8 @@ const FaceRecognitionV2 = () => {
                             {recognitionResult.customer?.loyalty_points || 0}
                           </strong>
                         </Typography>
-                                    </Box>
-                                </Stack>
+                      </Box>
+                    </Stack>
 
                     {/* 5 món gần nhất */}
                     {recognitionResult.recent_products && recognitionResult.recent_products.length > 0 && (
@@ -1415,7 +1552,7 @@ const FaceRecognitionV2 = () => {
                           <Typography variant="subtitle2" sx={{ mb: 1.5, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 0.5 }}>
                             <ShoppingBagIcon fontSize="small" />
                             5 món gần nhất
-                                    </Typography>
+                          </Typography>
                           <Grid container spacing={1}>
                             {recognitionResult.recent_products.map((product, index) => (
                               <Grid item xs={6} key={product.id || index}>
@@ -1438,9 +1575,9 @@ const FaceRecognitionV2 = () => {
                                     {!product.thumbnail && product.name?.charAt(0)?.toUpperCase()}
                                   </Avatar>
                                   <Box sx={{ flex: 1, minWidth: 0 }}>
-                                    <Typography 
-                                      variant="body2" 
-                                      sx={{ 
+                                    <Typography
+                                      variant="body2"
+                                      sx={{
                                         fontWeight: 500,
                                         overflow: 'hidden',
                                         textOverflow: 'ellipsis',
@@ -1450,12 +1587,12 @@ const FaceRecognitionV2 = () => {
                                       {product.name}
                                     </Typography>
                                     <Typography variant="caption" color="text.secondary">
-                                      {new Intl.NumberFormat('vi-VN', { 
-                                        style: 'currency', 
-                                        currency: 'VND' 
+                                      {new Intl.NumberFormat('vi-VN', {
+                                        style: 'currency',
+                                        currency: 'VND'
                                       }).format(product.price || 0)}
                                     </Typography>
-                        </Box>
+                                  </Box>
                                 </Box>
                               </Grid>
                             ))}
@@ -1464,14 +1601,14 @@ const FaceRecognitionV2 = () => {
                       </>
                     )}
 
-                            <Button
-                                variant="outlined"
-                                fullWidth
+                    <Button
+                      variant="outlined"
+                      fullWidth
                       sx={{ mt: 2 }}
                       onClick={resetAndScan}
-                            >
+                    >
                       Tiếp tục quét
-                            </Button>
+                    </Button>
                   </Paper>
                 </Box>
               )}
@@ -1533,7 +1670,7 @@ const FaceRecognitionV2 = () => {
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                           <LocationIcon fontSize="small" />
                           <Typography variant="body2">Tự động lấy từ vị trí</Typography>
-                                </Box>
+                        </Box>
                       }
                     />
                   </Grid>
@@ -1549,7 +1686,7 @@ const FaceRecognitionV2 = () => {
                     <Grid item xs={12}>
                       <Box sx={{ display: 'flex', justifyContent: 'center' }}>
                         <CircularProgress size={24} />
-                        </Box>
+                      </Box>
                     </Grid>
                   )}
                 </Grid>
@@ -1648,8 +1785,8 @@ const FaceRecognitionV2 = () => {
                                 {product.reason}
                               </Typography>
                             )}
-                    </CardContent>
-                </Card>
+                          </CardContent>
+                        </Card>
                       </Grid>
                     ))}
                   </Grid>
@@ -1671,8 +1808,8 @@ const FaceRecognitionV2 = () => {
       </Grid>
 
       {/* Dialog tạo tài khoản mới */}
-      <Dialog 
-        open={showCreateDialog} 
+      <Dialog
+        open={showCreateDialog}
         onClose={() => setShowCreateDialog(false)}
         maxWidth="sm"
         fullWidth
@@ -1681,62 +1818,77 @@ const FaceRecognitionV2 = () => {
           <PersonAddIcon color="primary" />
           Tạo tài khoản khách hàng mới
         </DialogTitle>
-                    <DialogContent>
+        <DialogContent>
           <Box sx={{ display: 'flex', gap: 3, mt: 1 }}>
             {/* Ảnh đã chụp */}
             <Box sx={{ textAlign: 'center', flexShrink: 0 }}>
-              <Avatar
-                src={capturedImage}
-                sx={{ 
-                  width: 100, 
-                  height: 100, 
-                  border: '3px solid',
-                  borderColor: 'primary.main'
-                }}
-              />
+              {(dialogImage || capturedImage) ? (
+                <Box
+                  component="img"
+                  src={dialogImage || capturedImage}
+                  alt="Face"
+                  sx={{
+                    width: 100,
+                    height: 100,
+                    borderRadius: '50%',
+                    objectFit: 'cover',
+                    border: '3px solid',
+                    borderColor: 'primary.main'
+                  }}
+                />
+              ) : (
+                <Avatar
+                  sx={{
+                    width: 100,
+                    height: 100,
+                    border: '3px solid',
+                    borderColor: 'grey.300'
+                  }}
+                />
+              )}
               <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
                 Ảnh đại diện
               </Typography>
-                            </Box>
-            
+            </Box>
+
             {/* Form nhập thông tin */}
             <Stack spacing={2} sx={{ flex: 1 }}>
-                            <TextField
+              <TextField
                 label="Họ và tên *"
-                                fullWidth
+                fullWidth
                 value={newCustomerData.name}
                 onChange={(e) => setNewCustomerData(prev => ({ ...prev, name: e.target.value }))}
                 placeholder="Nguyễn Văn A"
-                            />
-                            <TextField
+              />
+              <TextField
                 label="Email *"
                 type="email"
-                                fullWidth
+                fullWidth
                 value={newCustomerData.email}
                 onChange={(e) => setNewCustomerData(prev => ({ ...prev, email: e.target.value }))}
                 placeholder="email@example.com"
-                            />
-                            <TextField
-                                label="Số điện thoại"
-                                fullWidth
+              />
+              <TextField
+                label="Số điện thoại"
+                fullWidth
                 value={newCustomerData.phone}
                 onChange={(e) => setNewCustomerData(prev => ({ ...prev, phone: e.target.value }))}
                 placeholder="0912345678"
-                            />
+              />
               <Alert severity="info" sx={{ py: 0.5 }}>
                 Mật khẩu mặc định: <strong>12345678</strong>
               </Alert>
-                        </Stack>
+            </Stack>
           </Box>
-          
+
           {error && (
             <Alert severity="error" sx={{ mt: 2 }}>
               {error}
             </Alert>
           )}
-                    </DialogContent>
+        </DialogContent>
         <DialogActions sx={{ p: 2, pt: 0 }}>
-          <Button 
+          <Button
             onClick={() => setShowCreateDialog(false)}
             disabled={isCreating}
           >
@@ -1751,8 +1903,8 @@ const FaceRecognitionV2 = () => {
           >
             {isCreating ? 'Đang tạo...' : 'Tạo tài khoản'}
           </Button>
-                    </DialogActions>
-                </Dialog>
+        </DialogActions>
+      </Dialog>
 
       {/* CSS Animation */}
       <style>
@@ -1769,8 +1921,8 @@ const FaceRecognitionV2 = () => {
           }
         `}
       </style>
-        </AdminPageLayout>
-    );
+    </AdminPageLayout>
+  );
 };
 
 export default FaceRecognitionV2;
