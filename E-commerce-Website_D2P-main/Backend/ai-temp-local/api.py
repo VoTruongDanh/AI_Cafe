@@ -1776,20 +1776,26 @@ def face_v2_recognize(req: FaceRecognizeRequest):
         quality_score = camera_face_info.get("det_score", 0.0) * 100 if camera_face_info else 0.0
         cropped_face = camera_face_info.get("cropped_face_base64") if camera_face_info else None
         
-        if best_match and best_similarity >= v2.SIMILARITY_V2_THRESHOLD:
+        SUSPECTED_THRESHOLD = 0.42 # Ngưỡng thấp để phát hiện người đeo khẩu trang/nghi ngờ
+        
+        # Check Normal OR Suspected
+        if best_match and (best_similarity >= v2.SIMILARITY_V2_THRESHOLD or best_similarity >= SUSPECTED_THRESHOLD):
             for f in temp_files:
                 try: os.remove(f)
                 except: pass
             
-            print(f"[INFO] V2 Match found in {processing_time}ms (quality: {quality_score:.1f}, similarity: {best_similarity:.3f}, threshold: {v2.SIMILARITY_V2_THRESHOLD})")
+            is_suspected = best_similarity < v2.SIMILARITY_V2_THRESHOLD
+            match_type = "SUSPECTED (MASK?)" if is_suspected else "NORMAL"
+            
+            print(f"[INFO] V2 Match found [{match_type}] in {processing_time}ms (quality: {quality_score:.1f}, similarity: {best_similarity:.3f}, threshold: {v2.SIMILARITY_V2_THRESHOLD})")
             
             # Chuyển đổi similarity thành độ tin cậy % thân thiện người dùng
             confidence = v2.similarity_to_confidence(best_similarity)
-            print(f"[INFO] V2 Confidence: {confidence}% (from similarity: {best_similarity:.3f})")
             
             return {
                 "success": True,
                 "matched": True,
+                "is_suspected": is_suspected, # Flag cho frontend hiển thị cảnh báo
                 "face_detected": True,
                 "customer_id": best_match["customer_id"],
                 "customer_name": best_match["customer_name"],
@@ -1803,7 +1809,8 @@ def face_v2_recognize(req: FaceRecognizeRequest):
                 "similarity_threshold": v2.SIMILARITY_V2_THRESHOLD,
                 "processing_time_ms": processing_time,
                 "detection_method": camera_face_info.get("detection_method"),
-                "enhanced": camera_face_info.get("enhanced", False)
+                "enhanced": camera_face_info.get("enhanced", False),
+                "message": "Có thể là khách hàng (cần xác thực)" if is_suspected else "Nhận diện thành công"
             }
         else:
             for f in temp_files:

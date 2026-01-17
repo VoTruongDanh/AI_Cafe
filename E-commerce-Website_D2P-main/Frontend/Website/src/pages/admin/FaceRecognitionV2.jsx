@@ -464,15 +464,39 @@ const FaceRecognitionV2 = () => {
         };
         // === CÂN BẰNG TỐC ĐỘ + AN TOÀN ===
         const threshold = result.similarity_threshold || 0.55;
-        const instantThreshold = 0.60; // >= 0.60: INSTANT (rất chắc chắn)
+        const instantThreshold = 0.60;
+        const suspectThreshold = 0.42;
 
-        // [LAYER 1] INSTANT MATCH: >= 0.60 → confirm ngay (1 scan, ~0.9s)
+        // Logic tự suy luận Suspected tại Frontend (để đảm bảo UI luôn hiện cảnh báo)
+        const isServerSuspected = result.is_suspected === true;
+        const isScoreSuspected = similarity >= suspectThreshold && similarity < threshold;
+        const isSuspected = isServerSuspected || isScoreSuspected;
+
+        // [LAYER 1] INSTANT MATCH & SUSPECTED HANDLING
+        // Case 1: Điểm cao (>= 0.60) -> Chắc chắn -> Dừng quét (Confirm)
         if (similarity >= instantThreshold) {
-          console.log(`[INSTANT] Score ${similarity} >= 0.60. Confirmed: ${bestName}`);
+          console.log(`[INSTANT] Confirmed: ${bestName} (Score: ${similarity})`);
           confirmMatch();
           matchStreakRef.current = 0;
         }
-        // [LAYER 2] VOTING: 0.55-0.60 → cần 2 scans cùng customer_id
+        // Case 2: Nghi ngờ/Khẩu trang (0.42 - 0.60) -> Hiện cảnh báo nhưng VẪN QUÉT TIẾP
+        else if (isSuspected) {
+          console.log(`[SUSPECTED] Show UI but keep scanning...`);
+
+          // Ensure flag is set for UI
+          if (!result.is_suspected) result.is_suspected = true;
+
+          setRecognitionResult(result);
+          setRecognitionStatus('MATCHED');
+
+          // Reset counters để không bị hiện form khách mới
+          noMatchCountRef.current = 0;
+          setNoMatchCount(0);
+          setIsNewCustomer(false);
+
+          // KHÔNG gọi confirmMatch() để giữ camera chạy
+        }
+        // [LAYER 2] VOTING: (Dành cho trường hợp nằm giữa threshold và instantThreshold mà không bị suspect - hiếm gặp với logic hiện tại)
         else if (similarity >= threshold) {
           if (lastMatchIdRef.current === customerId) {
             matchStreakRef.current += 1;
@@ -1422,8 +1446,8 @@ const FaceRecognitionV2 = () => {
               {recognitionResult?.matched && (
                 <Box>
                   <Alert
-                    severity="success"
-                    icon={<SuccessIcon />}
+                    severity={recognitionResult.is_suspected ? "warning" : "success"}
+                    icon={recognitionResult.is_suspected ? <PersonIcon /> : <SuccessIcon />}
                     sx={{ mb: 2 }}
                   >
                     {recognitionResult.isNewlyCreated ? (
@@ -1434,9 +1458,20 @@ const FaceRecognitionV2 = () => {
                       </>
                     ) : (
                       <>
-                        <strong>🎉 Đã tìm thấy khách hàng!</strong>
-                        <br />
-                        Độ tin cậy: {Math.min(99, Math.max(80, 80 + ((recognitionResult.similarity || 0.55) - 0.55) * 63.33)).toFixed(1)}%
+                        {recognitionResult.is_suspected ? (
+                          <>
+                            <strong>⚠️ Có thể là: {recognitionResult.customer?.name}</strong>
+                            <br />
+                            Độ tin cậy thấp ({recognitionResult.confidence}%). <br />
+                            <i>Hệ thống phát hiện có thể đang đeo khẩu trang. Vui lòng gỡ khẩu trang để xác nhận chính xác.</i>
+                          </>
+                        ) : (
+                          <>
+                            <strong>🎉 Đã tìm thấy khách hàng!</strong>
+                            <br />
+                            Độ tin cậy: {Math.min(99, Math.max(80, 80 + ((recognitionResult.similarity || 0.55) - 0.55) * 63.33)).toFixed(1)}%
+                          </>
+                        )}
                       </>
                     )}
                   </Alert>
