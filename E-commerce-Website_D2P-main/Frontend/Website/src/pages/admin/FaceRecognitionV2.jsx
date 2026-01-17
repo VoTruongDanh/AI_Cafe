@@ -59,7 +59,7 @@ import api from '../../services/api';
 import { toast } from 'react-toastify';
 
 const SCAN_INTERVAL = 400; // OPTIMIZED: Giảm từ 600ms xuống 400ms để nhận diện nhanh hơn
-const MAX_SCANS_BEFORE_NEW_CUSTOMER = 4;
+const MAX_SCANS_BEFORE_NEW_CUSTOMER = 2;
 
 const FaceRecognitionV2 = () => {
   const navigate = useNavigate();
