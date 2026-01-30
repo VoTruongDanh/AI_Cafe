@@ -1,0 +1,286 @@
+"""
+Face Recognition API Router
+"""
+import os
+import time
+import numpy as np
+from fastapi import APIRouter
+from pathlib import Path
+from typing import Optional
+from api.models import (
+    FaceRecognizeRequest,
+    CustomerCacheRequest,
+    FaceDetectRequest,
+    CustomerFace
+)
+from ai_service.face_recognition import (
+    init_arcface_v2_system,
+    extract_arcface_v2_embedding_from_camera,
+    cache_customers_v2_embeddings,
+    search_faiss_v2_candidates,
+    compute_similarity_v2,
+    similarity_to_confidence,
+    ARCFACE_V2_MODEL,
+    CUSTOMER_V2_CACHE,
+    FAISS_V2_INDEX,
+    FAISS_V2_ID_MAP,
+    SIMILARITY_V2_THRESHOLD
+)
+from ai_service.utils import save_base64_image, get_avatar_path
+
+router = APIRouter(prefix="/face", tags=["face"])
+
+# Configuration
+LARAVEL_PUBLIC_PATH = Path(__file__).parent.parent.parent / "public"  # Default path, can be configured
+SUSPECTED_THRESHOLD = 0.42  # Lower threshold for suspected matches (e.g., mask)
+
+
+def get_avatar_path_wrapper(avatar_url: Optional[str], avatar_path: Optional[str]) -> Optional[str]:
+    """Wrapper for get_avatar_path with default public path"""
+    return get_avatar_path(avatar_url, avatar_path, LARAVEL_PUBLIC_PATH)
+
+
+@router.get("/status")
+def face_status():
+    """Get face recognition service status"""
+    return {
+        "service": "Face Recognition",
+        "version": "v2",
+        "available": ARCFACE_V2_MODEL is not None,
+        "model_loaded": ARCFACE_V2_MODEL is not None,
+        "customer_cache_size": len(CUSTOMER_V2_CACHE.get("customers", [])),
+        "customer_cache_version": CUSTOMER_V2_CACHE.get("version", 0),
+        "faiss_available": FAISS_V2_INDEX is not None,
+        "faiss_index_size": len(FAISS_V2_ID_MAP),
+        "similarity_threshold": SIMILARITY_V2_THRESHOLD,
+        "message": "Ready" if ARCFACE_V2_MODEL is not None else "Not initialized"
+    }
+
+
+@router.get("/v2/status")
+def face_v2_status():
+    """Get V2 face recognition status"""
+    return {
+        "version": "v2",
+        "available": ARCFACE_V2_MODEL is not None,
+        "ai_service": "online",
+        "model_loaded": ARCFACE_V2_MODEL is not None,
+        "faiss_available": FAISS_V2_INDEX is not None,
+        "customer_cache_size": len(CUSTOMER_V2_CACHE.get("customers", [])),
+        "similarity_threshold": SIMILARITY_V2_THRESHOLD,
+        "message": "Ready (V2 - ArcFace)" if ARCFACE_V2_MODEL is not None else "Not initialized"
+    }
+
+
+@router.post("/v2/cache-customers")
+def face_v2_cache_customers(payload: CustomerCacheRequest):
+    """Cache customer embeddings"""
+    if ARCFACE_V2_MODEL is None:
+        return {"ok": False, "message": "Face Recognition V2 chưa sẵn sàng"}
+    
+    try:
+        customers_data = [
+            {
+                "id": c.id,
+                "name": c.name,
+                "avatar_url": c.avatar_url,
+                "avatar_path": c.avatar_path
+            }
+            for c in payload.customers
+        ]
+        
+        success = cache_customers_v2_embeddings(
+            customers_data,
+            get_avatar_path_func=get_avatar_path_wrapper
+        )
+        
+        return {
+            "ok": success,
+            "cached": len(CUSTOMER_V2_CACHE.get("customers", [])),
+            "cache_version": CUSTOMER_V2_CACHE.get("version", 0),
+            "message": f"Đã cache {len(CUSTOMER_V2_CACHE.get('customers', []))} customers cho V2"
+        }
+    except Exception as e:
+        print(f"[ERROR] Cache V2 customers failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"ok": False, "message": str(e)}
+
+
+@router.post("/v2/recognize")
+def face_v2_recognize(req: FaceRecognizeRequest):
+    """Recognize face using V2 ArcFace"""
+    start_time = time.time()
+    
+    # Lazy initialization check
+    if ARCFACE_V2_MODEL is None:
+        print("[INFO] V2 Model is None. Triggering LAZY INITIALIZATION...")
+        init_arcface_v2_system()
+    
+    if ARCFACE_V2_MODEL is None:
+        return {
+            "success": False,
+            "matched": False,
+            "message": "Face Recognition V2 chưa sẵn sàng"
+        }
+    
+    temp_files = []
+    
+    try:
+        # Save base64 image
+        camera_image_path = save_base64_image(req.image_base64, "camera_v2")
+        temp_files.append(camera_image_path)
+        
+        # Extract embedding
+        camera_embedding, camera_face_info = extract_arcface_v2_embedding_from_camera(camera_image_path)
+        
+        # Handle no face detected
+        if camera_embedding is None:
+            for f in temp_files:
+                try:
+                    os.remove(f)
+                except:
+                    pass
+            
+            if camera_face_info and camera_face_info.get("quality_insufficient"):
+                return {
+                    "success": True,
+                    "matched": False,
+                    "face_detected": True,
+                    "face_quality": camera_face_info.get("det_score", 0) * 100,
+                    "face_box": camera_face_info.get("bbox"),
+                    "message": camera_face_info.get("message", "Chất lượng mặt không đủ"),
+                    "processing_time_ms": int((time.time() - start_time) * 1000)
+                }
+            
+            return {
+                "success": True,
+                "matched": False,
+                "face_detected": False,
+                "message": camera_face_info.get("message", "Không phát hiện khuôn mặt") if camera_face_info else "Không phát hiện khuôn mặt",
+                "processing_time_ms": int((time.time() - start_time) * 1000)
+            }
+        
+        # Cache customers if provided
+        if req.customers and len(req.customers) > 0:
+            customers_data = [
+                {
+                    "id": c.id,
+                    "name": c.name,
+                    "avatar_url": c.avatar_url,
+                    "avatar_path": c.avatar_path
+                }
+                for c in req.customers
+            ]
+            cache_customers_v2_embeddings(customers_data, get_avatar_path_func=get_avatar_path_wrapper)
+        
+        # Search for matches
+        best_match = None
+        best_similarity = 0.0
+        best_customer_name = None
+        
+        if FAISS_V2_INDEX is not None and len(FAISS_V2_ID_MAP) > 0:
+            # Use FAISS
+            candidates = search_faiss_v2_candidates(camera_embedding, top_k=50)
+            for idx, similarity in candidates:
+                if similarity > best_similarity:
+                    best_similarity = similarity
+                    meta = FAISS_V2_ID_MAP[idx]
+                    best_match = {
+                        "customer_id": meta["customer_id"],
+                        "customer_name": meta["customer_name"],
+                        "cosine_similarity": similarity,
+                        "avatar_quality": meta.get("avatar_quality", 0.0)
+                    }
+                    best_customer_name = meta["customer_name"]
+        else:
+            # Fallback: linear search
+            for customer_data in CUSTOMER_V2_CACHE.get("customers", []):
+                avatar_emb = np.array(customer_data["embedding"], dtype=np.float32)
+                similarity_result = compute_similarity_v2(camera_embedding, avatar_emb)
+                similarity = similarity_result["cosine_similarity"]
+                
+                if similarity > best_similarity:
+                    best_similarity = similarity
+                    best_match = {
+                        "customer_id": customer_data["customer_id"],
+                        "customer_name": customer_data["customer_name"],
+                        "cosine_similarity": similarity,
+                        "avatar_quality": customer_data.get("avatar_quality", 0.0)
+                    }
+                    best_customer_name = customer_data["customer_name"]
+        
+        # Check threshold
+        processing_time = int((time.time() - start_time) * 1000)
+        quality_score = camera_face_info.get("det_score", 0.0) * 100 if camera_face_info else 0.0
+        cropped_face = camera_face_info.get("cropped_face_base64") if camera_face_info else None
+        
+        # Check if match
+        if best_match and (best_similarity >= SIMILARITY_V2_THRESHOLD or best_similarity >= SUSPECTED_THRESHOLD):
+            for f in temp_files:
+                try:
+                    os.remove(f)
+                except:
+                    pass
+            
+            is_suspected = best_similarity < SIMILARITY_V2_THRESHOLD
+            confidence = similarity_to_confidence(best_similarity)
+            
+            return {
+                "success": True,
+                "matched": True,
+                "is_suspected": is_suspected,
+                "face_detected": True,
+                "customer_id": best_match["customer_id"],
+                "customer_name": best_match["customer_name"],
+                "confidence": confidence,
+                "confidence_display": f"{confidence}%",
+                "similarity": round(best_similarity, 4),
+                "similarity_percent": round(best_similarity * 100, 2),
+                "face_quality": round(quality_score, 1),
+                "face_box": camera_face_info.get("bbox"),
+                "cropped_face": cropped_face,
+                "similarity_threshold": SIMILARITY_V2_THRESHOLD,
+                "processing_time_ms": processing_time,
+                "detection_method": camera_face_info.get("detection_method"),
+                "enhanced": camera_face_info.get("enhanced", False),
+                "message": "Có thể là khách hàng (cần xác thực)" if is_suspected else "Nhận diện thành công"
+            }
+        else:
+            for f in temp_files:
+                try:
+                    os.remove(f)
+                except:
+                    pass
+            
+            return {
+                "success": True,
+                "matched": False,
+                "face_detected": True,
+                "face_quality": round(quality_score, 1),
+                "face_box": camera_face_info.get("bbox"),
+                "cropped_face": cropped_face,
+                "best_similarity": round(best_similarity, 4) if best_match else 0.0,
+                "best_customer_name": best_customer_name if best_match else None,
+                "similarity_threshold": SIMILARITY_V2_THRESHOLD,
+                "message": f"Không tìm thấy khách hàng phù hợp (độ tương đồng tốt nhất: {best_similarity:.1%}, ngưỡng: {SIMILARITY_V2_THRESHOLD:.1%})",
+                "processing_time_ms": processing_time,
+                "detection_method": camera_face_info.get("detection_method"),
+                "enhanced": camera_face_info.get("enhanced", False)
+            }
+    
+    except Exception as e:
+        for f in temp_files:
+            try:
+                os.remove(f)
+            except:
+                pass
+        print(f"[ERROR] V2 Recognition failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "success": False,
+            "matched": False,
+            "message": f"Lỗi: {str(e)}",
+            "processing_time_ms": int((time.time() - start_time) * 1000)
+        }

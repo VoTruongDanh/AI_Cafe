@@ -1,0 +1,28 @@
+# FastAPI and Web Server
+fastapi==0.112.0
+uvicorn==0.30.5
+pydantic==2.8.2
+requests==2.31.0
+
+# Machine Learning - Temperature Classification
+scikit-learn==1.5.1
+joblib==1.4.2
+
+# Face Recognition - FaceNet-PyTorch (Fast & Accurate)
+facenet-pytorch==2.6.0
+torch>=2.0.0
+torchvision>=0.15.0
+numpy<2.0.0
+Pillow>=10.2.0,<10.3.0
+
+# FAISS - CPU version (GPU version không có trên PyPI, cần conda)
+faiss-cpu==1.7.4
+
+# Face Detection - SCRFD (Faster than MTCNN)
+insightface>=0.7.3
+
+# ONNX Runtime - GPU version (nhanh hơn CPU version)
+onnxruntime-gpu>=1.15.0
+
+# Optional: For CPU-only systems, use onnxruntime instead:
+# onnxruntime>=1.15.0

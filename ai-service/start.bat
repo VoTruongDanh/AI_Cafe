@@ -1,0 +1,3 @@
+@echo off
+echo Starting AI Service...
+python main.py
