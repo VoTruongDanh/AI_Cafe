@@ -51,15 +51,19 @@ INSTANT_MATCH_THRESHOLD = 0.60  # Giảm từ 0.70 xuống 0.60 để instant nh
 VOTING_STREAK_REQUIRED = 2      # Giảm từ 3 xuống 2 - chỉ cần 2 matches liên tiếp
 MAX_SCANS_BEFORE_NEW_CUSTOMER = 4
 MIN_DET_SCORE = 0.60
+
 MIN_AREA_RATIO = 0.02
 MAX_AREA_RATIO = 0.40
 
+LAST_INIT_ERROR = None
 
 def initialize_arcface_v2():
     """Initialize ArcFace V2 model theo best practices với multi-scale detection"""
-    global ARCFACE_V2_MODEL, ARCFACE_V2_MODEL_SMALL, FAISS_V2_INDEX, FAISS_V2_ID_MAP, SCRFD_V2_DETECTOR
+    global ARCFACE_V2_MODEL, ARCFACE_V2_MODEL_SMALL, FAISS_V2_INDEX, FAISS_V2_ID_MAP, SCRFD_V2_DETECTOR, LAST_INIT_ERROR
     
     print("[INFO] Initializing ArcFace V2 System (High Accuracy Mode)...")
+    LAST_INIT_ERROR = None
+
     
     try:
         import insightface
@@ -93,6 +97,7 @@ def initialize_arcface_v2():
         
         return True
     except Exception as e:
+        LAST_INIT_ERROR = str(e)
         print(f"[ERROR] ArcFace V2 initialization failed: {e}")
         import traceback
         traceback.print_exc()

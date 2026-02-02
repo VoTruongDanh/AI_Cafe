@@ -48,10 +48,36 @@ def save_base64_image(base64_str: str, prefix: str = "face") -> str:
     return temp_path
 
 
+
+def download_image_from_url(url: str, prefix: str = "avatar_download") -> Optional[str]:
+    """
+    Download image from URL to temporary file
+    """
+    import requests
+    
+    try:
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            fd, temp_path = tempfile.mkstemp(suffix='.jpg', prefix=prefix + '_')
+            os.close(fd)
+            
+            with open(temp_path, 'wb') as f:
+                f.write(response.content)
+            
+            return temp_path
+        else:
+            print(f"[WARN] Failed to download image from {url}: Status {response.status_code}")
+            return None
+    except Exception as e:
+        print(f"[WARN] Download failed: {e}")
+        return None
+
+
 def get_avatar_path(avatar_url: Optional[str], avatar_path: Optional[str], 
                    public_path: Optional[Path] = None) -> Optional[str]:
     """
     Get local file path from avatar URL or path
+    If input is a Cloud URL, download to temp file.
     
     Args:
         avatar_url: Avatar URL
@@ -65,18 +91,29 @@ def get_avatar_path(avatar_url: Optional[str], avatar_path: Optional[str],
         # Default to current directory
         public_path = Path.cwd()
     
+    # 1. Priority: Local Path provided
     if avatar_path:
         clean_path = avatar_path.lstrip('/').lstrip('\\')
         local_path = public_path / clean_path
         if local_path.exists():
             return str(local_path)
     
+    # 2. Check avatar_url
     if avatar_url:
+        # Case A: Local URL (e.g., http://localhost/uploads/...)
         match = re.search(r'[/\\]?(uploads[/\\]avatars[/\\][^?]+)', avatar_url)
         if match:
             relative_path = match.group(1).replace('\\', '/')
             local_path = public_path / relative_path
             if local_path.exists():
                 return str(local_path)
+        
+        # Case B: Cloud URL (http:// or https://)
+        if avatar_url.startswith("http://") or avatar_url.startswith("https://"):
+            print(f"[INFO] Cloud URL detected: {avatar_url}, downloading...")
+            downloaded_path = download_image_from_url(avatar_url)
+            if downloaded_path:
+                print(f"[INFO] Downloaded to: {downloaded_path}")
+                return downloaded_path
     
     return None

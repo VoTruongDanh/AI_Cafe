@@ -13,11 +13,37 @@ except ImportError as e:
 
 from ai_service.face_recognition import init_arcface_v2_system
 
+
+# Define Tags Metadata
+tags_metadata = [
+    {
+        "name": "face",
+        "description": "API Nhận diện khuôn mặt (Face Recognition) sử dụng ArcFace V2 & FAISS.",
+    },
+    {
+        "name": "temperature",
+        "description": "API Phân loại nhiệt độ món ăn (Food Temperature Classification) sử dụng Scikit-learn.",
+    },
+]
+
 # Create FastAPI app
 app = FastAPI(
-    title="AI Service",
-    description="AI Service for Temperature Classification and Face Recognition",
-    version="1.0.0"
+    title="AI Service API - Cafe Management System",
+    description="""
+    **AI Microservice** cung cấp các tính năng thông minh cho hệ thống quản lý quán Cafe.
+    
+    ## 🌟 Tính năng chính
+    *   **Face Recognition V2**: Nhận diện khách hàng thân thiết qua Camera (ArcFace + FAISS).
+    *   **Smart Recommendation**: Gợi ý món uống theo thời tiết hiện tại (Temperature Based).
+    
+    ## 🔗 Tích hợp
+    *   **Base URL**: `http://127.0.0.1:9009`
+    *   **Timeout**: Khuyến nghị set timeout 10s cho các request nhận diện.
+    """,
+    version="2.1.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_tags=tags_metadata
 )
 
 # CORS middleware
@@ -84,4 +110,4 @@ def health():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=9009, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=9009, reload=False)

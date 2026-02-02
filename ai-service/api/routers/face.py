@@ -37,7 +37,12 @@ def get_avatar_path_wrapper(avatar_url: Optional[str], avatar_path: Optional[str
     return get_avatar_path(avatar_url, avatar_path, LARAVEL_PUBLIC_PATH)
 
 
-@router.get("/status")
+@router.get(
+    "/status",
+    summary="Trạng thái Service (General)",
+    description="Kiểm tra trạng thái chung của module nhận diện khuôn mặt.",
+    response_description="Trạng thái hoạt động và các thông số cache hiện tại."
+)
 def face_status():
     """Get face recognition service status"""
     return {
@@ -54,7 +59,12 @@ def face_status():
     }
 
 
-@router.get("/v2/status")
+@router.get(
+    "/v2/status",
+    summary="Trạng thái V2 (ArcFace)",
+    description="Kiểm tra chi tiết trạng thái của model ArcFace V2 và FAISS Index.",
+    response_description="JSON chứa thông tin version, trạng thái model, và số lượng khách hàng đã cache."
+)
 def face_v2_status():
     """Get V2 face recognition status"""
     return {
@@ -69,11 +79,22 @@ def face_v2_status():
     }
 
 
-@router.post("/v2/cache-customers")
+@router.post(
+    "/v2/cache-customers",
+    summary="Cache Dữ liệu Khách hàng",
+    description="Nhận danh sách khách hàng (ID, Tên, Avatar URL) từ Backend và tính toán embedding vector để lưu vào bộ nhớ RAM.",
+    response_description="Kết quả cache (số lượng khách đã lưu)."
+)
 def face_v2_cache_customers(payload: CustomerCacheRequest):
     """Cache customer embeddings"""
+    # Lazy initialization check
     if v2_arcface.ARCFACE_V2_MODEL is None:
-        return {"ok": False, "message": "Face Recognition V2 chưa sẵn sàng"}
+        print("[INFO] V2 Model is None. Triggering LAZY INITIALIZATION for Cache...")
+        init_arcface_v2_system()
+
+    if v2_arcface.ARCFACE_V2_MODEL is None:
+        error_msg = f"Face Recognition V2 chưa sẵn sàng. Lỗi: {v2_arcface.LAST_INIT_ERROR}" if v2_arcface.LAST_INIT_ERROR else "Face Recognition V2 chưa sẵn sàng"
+        return {"ok": False, "message": error_msg}
     
     try:
         customers_data = [
@@ -104,7 +125,24 @@ def face_v2_cache_customers(payload: CustomerCacheRequest):
         return {"ok": False, "message": str(e)}
 
 
-@router.post("/v2/recognize")
+@router.post(
+    "/v2/recognize",
+    summary="Nhận diện Khuôn mặt",
+    description="""
+    **Nhận diện khuôn mặt từ ảnh Base64.**
+    
+    API hỗ trợ 2 chế độ:
+    1. **Có Cache (Khuyên dùng):** So khớp với database đã cache trước (qua API `/cache-customers`).
+    2. **Không Cache (Stateless - Test/New User):** Gửi kèm danh sách `customers` ngay trong request để nhận diện mà không cần cache trước.
+    
+    **Quy trình xử lý:**
+    1. Decode Base64 & Xử lý ảnh (Resize/Crop).
+    2. Detect khuôn mặt (InsightFace - Buffalo_L).
+    3. Trích xuất đặc trưng (Embedding Vector).
+    4. So khớp Cosine Similarity với Cache V2 hoặc danh sách gửi kèm.
+    """,
+    response_description="Kết quả nhận diện: thông tin khách hàng, độ tin cậy (confidence), và cảnh báo nghi ngờ (nếu có)."
+)
 def face_v2_recognize(req: FaceRecognizeRequest):
     """Recognize face using V2 ArcFace"""
     start_time = time.time()

@@ -170,6 +170,7 @@ class TemperatureClassifier:
         with self.dataset_path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(row, ensure_ascii=False) + "\n")
     
+    
     def get_stats(self) -> dict:
         """Get dataset statistics"""
         count = 0
@@ -201,3 +202,59 @@ class TemperatureClassifier:
             "cold_samples": cold_count,
             "has_model": self.model is not None
         }
+
+    # Helper Cache for Recommendations
+    menu_cache = []
+
+    def cache_menu(self, items: List[dict]):
+        """
+        Cache menu items with their predicted temperature
+        
+        Args:
+            items: List of dictionaries with 'id', 'name', 'categoryName'
+        """
+        self.menu_cache = []
+        for item in items:
+            prediction = self.predict(item.get("name"), item.get("categoryName"))
+            self.menu_cache.append({
+                "id": item.get("id"),
+                "name": item.get("name"),
+                "categoryName": item.get("categoryName"),
+                "temperature": prediction.get("temperature"),
+                "confidence": prediction.get("confidence"),
+                "reason": prediction.get("reason")
+            })
+        print(f"[INFO] Cached {len(self.menu_cache)} menu items for recommendation.")
+        return len(self.menu_cache)
+
+    def recommend(self, current_temp: float, threshold: float = 30.0) -> List[dict]:
+        """
+        Recommend items based on weather temperature
+        
+        Args:
+            current_temp: Current environment temperature
+            threshold: Threshold to switch between HOT and COLD (default 30.0)
+            
+        Returns:
+            List of recommended items
+        """
+        # Logic: Temp >= Threshold -> Recommend COLD
+        #        Temp < Threshold  -> Recommend HOT
+        
+        target_temp = "COLD" if current_temp >= threshold else "HOT"
+        
+        recommendations = []
+        for item in self.menu_cache:
+            if item.get("temperature") == target_temp:
+                recommendations.append({
+                    "id": item.get("id"),
+                    "name": item.get("name"),
+                    "temperature": item.get("temperature"),
+                    "confidence": item.get("confidence"),
+                    "reason": f"Weather {current_temp}°C (Target {target_temp})"
+                })
+        
+        # Sort by confidence
+        recommendations.sort(key=lambda x: x["confidence"], reverse=True)
+        return recommendations
+
