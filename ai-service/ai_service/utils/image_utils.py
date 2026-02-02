@@ -20,10 +20,25 @@ def save_base64_image(base64_str: str, prefix: str = "face") -> str:
     Returns:
         Path to temporary file
     """
-    if base64_str.startswith('data:image'):
-        base64_str = base64_str.split(',')[1]
+    # Remove header if present (e.g., data:image/jpeg;base64,...)
+    if ',' in base64_str:
+        base64_str = base64_str.split(',', 1)[1]
     
-    image_data = base64.b64decode(base64_str)
+    # Clean string
+    base64_str = base64_str.strip()
+    
+    # Fix padding
+    missing_padding = len(base64_str) % 4
+    if missing_padding:
+        base64_str += '=' * (4 - missing_padding)
+    
+    try:
+        image_data = base64.b64decode(base64_str)
+    except Exception as e:
+        print(f"[ERROR] Base64 decode failed: {e}")
+        print(f"[ERROR] Base64 snippet: {base64_str[:50]}...")
+        raise ValueError("Invalid base64 string")
+
     fd, temp_path = tempfile.mkstemp(suffix='.jpg', prefix=prefix + '_')
     os.close(fd)
     

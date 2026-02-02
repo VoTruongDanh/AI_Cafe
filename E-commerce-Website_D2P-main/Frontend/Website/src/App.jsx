@@ -234,8 +234,8 @@ const AppContent = () => {
             <Route path="inventory" element={<AdminInventory />} />
             <Route path="analytics" element={<AdminAnalytics />} />
             <Route path="ai-classification" element={<AdminAIClassification />} />
-              <Route path="face-recognition" element={<AdminFaceRecognition />} />
               <Route path="face-recognition-v2" element={<AdminFaceRecognitionV2 />} />
+              <Route path="face-recognition-v1" element={<AdminFaceRecognition />} />
             <Route path="profile" element={<AdminProfile />} />
           </Route>
 

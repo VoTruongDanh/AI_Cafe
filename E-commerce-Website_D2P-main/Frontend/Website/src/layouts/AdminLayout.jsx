@@ -93,7 +93,7 @@ const menuItems = [
   { text: 'Tồn kho', icon: InventoryCustomIcon, path: 'inventory' },
   { text: 'Phân tích', icon: AnalyticsCustomIcon, path: 'analytics' },
   { text: 'AI Phân Loại', icon: AICustomIcon, path: 'ai-classification' },
-  { text: 'Nhận diện KH', icon: PeopleIcon, path: 'face-recognition' },
+  { text: 'Nhận diện KH', icon: PeopleIcon, path: 'face-recognition-v2' },
 ]
 
 const AdminLayout = () => {
