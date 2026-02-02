@@ -4,7 +4,13 @@ Main entry point for the AI service
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from api.routers import temperature, face
+from api.routers import face
+try:
+    from api.routers import temperature
+except ImportError as e:
+    print(f"[WARN] Could not import temperature router (likely missing sklearn): {e}")
+    temperature = None
+
 from ai_service.face_recognition import init_arcface_v2_system
 
 # Create FastAPI app
@@ -24,7 +30,8 @@ app.add_middleware(
 )
 
 # Include routers
-app.include_router(temperature.router)
+if temperature:
+    app.include_router(temperature.router)
 app.include_router(face.router)
 
 
