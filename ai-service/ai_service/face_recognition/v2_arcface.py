@@ -46,12 +46,13 @@ FAISS_V2_ID_MAP = []
 CUSTOMER_V2_CACHE = {"version": 0, "updated_at": 0, "customers": []}
 # ============== THRESHOLDS TỐI ƯU CHO TỐC ĐỘ NHANH ==============
 # Mục tiêu: 1-2 giây tổng từ khi đưa mặt vào đến khi nhận diện xong
-SIMILARITY_V2_THRESHOLD = 0.55  # Ngưỡng match cơ bản
-INSTANT_MATCH_THRESHOLD = 0.60  # Giảm từ 0.70 xuống 0.60 để instant nhanh hơn
-VOTING_STREAK_REQUIRED = 2      # Giảm từ 3 xuống 2 - chỉ cần 2 matches liên tiếp
-MAX_SCANS_BEFORE_NEW_CUSTOMER = 4
-MIN_DET_SCORE = 0.60
+SIMILARITY_V2_THRESHOLD = 0.50  # Ngưỡng match cơ bản (0.55 hơi cao với camera thường, 0.50 an toàn hơn)
+INSTANT_MATCH_THRESHOLD = 0.60  # Nếu > 0.60 thì chốt đơn luôn (không cần Voting)
+# Client-side Voting Logic (Tham khảo):
+# - VOTING_STREAK_REQUIRED = 2 (Chỉ cần 2 lần match liên tiếp)
+# - MAX_SCANS_BEFORE_NEW_CUSTOMER = 4 (Sau 4 lần ko match mới coi là khách mới)
 
+MIN_DET_SCORE = 0.60  # Chỉ lấy khuôn mặt rõ nét (>60%)
 MIN_AREA_RATIO = 0.02
 MAX_AREA_RATIO = 0.40
 

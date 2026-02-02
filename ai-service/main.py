@@ -30,15 +30,14 @@ tags_metadata = [
 app = FastAPI(
     title="AI Service API - Cafe Management System",
     description="""
-    **AI Microservice** cung cấp các tính năng thông minh cho hệ thống quản lý quán Cafe.
+    AI Service cung cấp các tính năng thông minh cho hệ thống quản lý quán Cafe.
     
-    ## 🌟 Tính năng chính
-    *   **Face Recognition V2**: Nhận diện khách hàng thân thiết qua Camera (ArcFace + FAISS).
-    *   **Smart Recommendation**: Gợi ý món uống theo thời tiết hiện tại (Temperature Based).
+    🌟 Tính năng chính
+       Face Recognition V2: Nhận diện khách hàng thân thiết qua Camera (ArcFace + FAISS).
+       Smart Recommendation: Gợi ý món uống theo thời tiết hiện tại (Temperature Based).
     
-    ## 🔗 Tích hợp
-    *   **Base URL**: `http://127.0.0.1:9009`
-    *   **Timeout**: Khuyến nghị set timeout 10s cho các request nhận diện.
+     🔗 Tích hợp
+        Base URL: `http://127.0.0.1:9009`.
     """,
     version="2.1.0",
     docs_url="/docs",
