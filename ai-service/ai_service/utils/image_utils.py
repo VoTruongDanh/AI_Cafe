@@ -51,19 +51,41 @@ def save_base64_image(base64_str: str, prefix: str = "face") -> str:
 
 def download_image_from_url(url: str, prefix: str = "avatar_download") -> Optional[str]:
     """
-    Download image from URL to temporary file
+    Download image from URL to temporary file with Browser Spoofing
     """
     import requests
+    import shutil
+    
+    # Fake Browser Headers to avoid 403 Forbidden
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+        'Referer': 'https://www.google.com/'
+    }
     
     try:
-        response = requests.get(url, timeout=10)
+        # Stream=True for large files
+        response = requests.get(url, headers=headers, timeout=15, stream=True)
+        
         if response.status_code == 200:
+            # Check content type if possible
+            content_type = response.headers.get('Content-Type', '')
+            if 'text' in content_type or 'html' in content_type:
+                print(f"[WARN] URL returned Text/HTML instead of Image: {url}")
+                return None
+                
             fd, temp_path = tempfile.mkstemp(suffix='.jpg', prefix=prefix + '_')
             os.close(fd)
             
             with open(temp_path, 'wb') as f:
-                f.write(response.content)
+                response.raw.decode_content = True
+                shutil.copyfileobj(response.raw, f)
             
+            # Verify file size
+            if os.path.getsize(temp_path) < 1000: # < 1KB
+                print(f"[WARN] Downloaded file too small (corrupt?): {url}")
+                return None
+                
             return temp_path
         else:
             print(f"[WARN] Failed to download image from {url}: Status {response.status_code}")

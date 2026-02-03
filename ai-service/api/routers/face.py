@@ -19,6 +19,7 @@ from ai_service.face_recognition import (
     init_arcface_v2_system,
     extract_arcface_v2_embedding_from_camera,
     cache_customers_v2_embeddings,
+    add_customer_v2_embedding,
     search_faiss_v2_candidates,
     compute_similarity_v2,
     similarity_to_confidence
@@ -122,6 +123,44 @@ def face_v2_cache_customers(payload: CustomerCacheRequest):
         print(f"[ERROR] Cache V2 customers failed: {e}")
         import traceback
         traceback.print_exc()
+        return {"ok": False, "message": str(e)}
+
+
+@router.post(
+    "/v2/add-customer",
+    summary="Thêm 1 Khách hàng mới (Incremental Cache)",
+    description="Thêm một khách hàng mới vào cache hiện tại mà KHÔNG cần reload toàn bộ. Dùng khi vừa đăng ký thành viên mới.",
+    response_description="Kết quả thêm vào cache."
+)
+def face_v2_add_customer(customer: CustomerFace):
+    """Add single customer to cache"""
+    # Lazy initialization check
+    if v2_arcface.ARCFACE_V2_MODEL is None:
+        init_arcface_v2_system()
+
+    if v2_arcface.ARCFACE_V2_MODEL is None:
+        return {"ok": False, "message": "Face Recognition V2 chưa sẵn sàng"}
+    
+    try:
+        customer_data = {
+            "id": customer.id,
+            "name": customer.name,
+            "avatar_url": customer.avatar_url,
+            "avatar_path": customer.avatar_path
+        }
+        
+        success = add_customer_v2_embedding(
+            customer_data,
+            get_avatar_path_func=get_avatar_path_wrapper
+        )
+        
+        return {
+            "ok": success,
+            "cached_total": len(v2_arcface.CUSTOMER_V2_CACHE.get("customers", [])),
+            "message": f"Đã thêm khách hàng {customer.name} vào cache V2" if success else "Thêm thất bại"
+        }
+    except Exception as e:
+        print(f"[ERROR] Add V2 customer failed: {e}")
         return {"ok": False, "message": str(e)}
 
 

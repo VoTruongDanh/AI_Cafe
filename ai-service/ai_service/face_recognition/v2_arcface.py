@@ -85,8 +85,14 @@ def initialize_arcface_v2():
             providers=providers,
             allowed_modules=['detection', 'recognition']  # CHỈ load 2 modules cần thiết
         )
-        ARCFACE_V2_MODEL.prepare(ctx_id=ctx_id, det_size=(256, 256))
-        print(f"[INFO] [OK] ArcFace V2 FAST model loaded (Model: {model_name}, det_size=256x256, modules=det+rec only)")
+        ARCFACE_V2_MODEL.prepare(ctx_id=ctx_id, det_size=(640, 640))
+        
+        # TWEAK: Giảm threshold detection xuống 0.35 để bắt được mặt mờ/nghiêng/nhỏ
+        # (Mặc định là 0.5)
+        if hasattr(ARCFACE_V2_MODEL, 'det_model'):
+            ARCFACE_V2_MODEL.det_model.conf_thresh = 0.35
+            
+        print(f"[INFO] [OK] ArcFace V2 FAST model loaded (Model: {model_name}, det_size=640x640, det_thresh=0.35)")
         
         # Small model: Không cần
         ARCFACE_V2_MODEL_SMALL = None
@@ -229,16 +235,26 @@ def extract_arcface_v2_embedding(image_path: str) -> Tuple[Optional[np.ndarray],
             print(f"[WARN] Failed to load image: {image_path}")
             return None, None
         
+        
         # BEST PRACTICE: Dùng full image, ArcFace tự detect và align
         faces_detected = model.get(img_cv)
         
-        # Fallback: Thử model lớn hơn nếu small model không detect được
-        if (faces_detected is None or len(faces_detected) == 0) and model == ARCFACE_V2_MODEL_SMALL and ARCFACE_V2_MODEL is not None:
-            print(f"[INFO] Small model failed, trying main model for: {image_path}")
-            faces_detected = ARCFACE_V2_MODEL.get(img_cv)
-        
+        # === FALLBACK 1: Nếu không thấy mặt, thử Enhance ảnh (CLAHE) ===
         if faces_detected is None or len(faces_detected) == 0:
-            print(f"[WARN] No faces detected in image: {image_path}")
+            print(f"[INFO] No face detected in original image, trying CLAHE enhancement: {image_path}")
+            img_enhanced = enhance_image_clahe(img_cv)
+            faces_detected = model.get(img_enhanced)
+            
+        # === FALLBACK 2: Nếu vẫn không thấy, thử Resize to lên (Upscale) ===
+        if faces_detected is None or len(faces_detected) == 0:
+            h, w = img_cv.shape[:2]
+            if h < 300 or w < 300: # Chỉ upscale nếu ảnh nhỏ
+                print(f"[INFO] Still no face, trying upscale (2x): {image_path}")
+                img_upscaled = cv2.resize(img_cv, (0, 0), fx=2.0, fy=2.0)
+                faces_detected = model.get(img_upscaled)
+
+        if faces_detected is None or len(faces_detected) == 0:
+            print(f"[WARN] No faces detected in image (after enhancements): {image_path}")
             return None, None
         
         # Lấy face có det_score cao nhất
@@ -509,6 +525,88 @@ def cache_customers_v2_embeddings(customers_data: List[dict], get_avatar_path_fu
         traceback.print_exc()
         return False
 
+
+def add_customer_v2_embedding(customer: dict, get_avatar_path_func=None) -> bool:
+    """
+    Thêm MỘT customer mới vào cache (Không cần rebuild lại toàn bộ).
+    Dùng cho trường hợp đăng ký mới.
+    """
+    global CUSTOMER_V2_CACHE, FAISS_V2_INDEX, FAISS_V2_ID_MAP
+    
+    try:
+        import faiss
+        
+        # 1. Resolve Avatar Path
+        if get_avatar_path_func:
+            avatar_path = get_avatar_path_func(
+                customer.get("avatar_url"),
+                customer.get("avatar_path")
+            )
+        else:
+            avatar_path = customer.get("avatar_path") or customer.get("avatar_url")
+            if avatar_path and not Path(avatar_path).is_absolute():
+                avatar_path = str(Path("../../public").joinpath(avatar_path.lstrip("/")).resolve())
+        
+        if not avatar_path or not Path(avatar_path).exists():
+            print(f"[WARN] Avatar not found for {customer.get('name')}: {avatar_path}")
+            return False
+            
+        # 2. Extract Embedding
+        embedding, face_info = extract_arcface_v2_embedding(avatar_path)
+        if embedding is None:
+            print(f"[WARN] Failed to extract embedding for {customer.get('name')}")
+            return False
+            
+        # 3. Update Global Cache
+        customer_cache_item = {
+            "customer_id": customer.get("id"),
+            "customer_name": customer.get("name"),
+            "embedding": embedding.tolist(),
+            "avatar_quality": face_info.get("det_score", 0.0) * 100 if face_info else 0.0
+        }
+        
+        if "customers" not in CUSTOMER_V2_CACHE:
+             CUSTOMER_V2_CACHE["customers"] = []
+             
+        # Optional: Check duplicate ID and remove old if exists (Update logic)
+        CUSTOMER_V2_CACHE["customers"] = [c for c in CUSTOMER_V2_CACHE["customers"] if c["customer_id"] != customer.get("id")]
+        CUSTOMER_V2_CACHE["customers"].append(customer_cache_item)
+        CUSTOMER_V2_CACHE["updated_at"] = time.time()
+        
+        # 4. Update FAISS Index
+        # Normalize
+        vec_normalized = embedding.astype(np.float32)
+        vec_norm = np.linalg.norm(vec_normalized)
+        if vec_norm > 0:
+            vec_normalized = vec_normalized / vec_norm
+        vec_normalized = vec_normalized.astype(np.float32)
+        vec_normalized = vec_normalized.reshape(1, -1)
+        
+        # Add to Index
+        if FAISS_V2_INDEX is None:
+            # Init index if empty
+            dim = vec_normalized.shape[1]
+            FAISS_V2_INDEX = faiss.IndexFlatIP(dim)
+            FAISS_V2_ID_MAP = []
+            
+        FAISS_V2_INDEX.add(vec_normalized)
+        
+        # Add metadata to ID Map
+        meta = {
+            "customer_id": customer.get("id"),
+            "customer_name": customer.get("name"),
+            "avatar_quality": face_info.get("det_score", 0.0) * 100 if face_info else 0.0
+        }
+        FAISS_V2_ID_MAP.append(meta)
+        
+        print(f"[INFO] Added V2 embedding for customer {customer.get('name')} (ID: {customer.get('id')})")
+        return True
+        
+    except Exception as e:
+        print(f"[ERROR] Add V2 embedding failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
 
 def search_faiss_v2_candidates(query_embedding: np.ndarray, top_k: int = 50) -> List[Tuple[int, float]]:
     """
